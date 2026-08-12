@@ -50,6 +50,7 @@ import {
   isSiteLockEnabled,
   updateSiteLockPassword,
 } from '../services/siteLockService.js';
+import { syncBookmarks, unsyncSite, SYNC_EMPTY_SNAPSHOT_ERROR } from '../services/bookmarkSyncService.js';
 import { OPERATION_LOG_ACTIONS, listOperationLogs, logOperation } from '../services/operationLogService.js';
 import { createBackup, deleteBackup, getBackupPayload, getWebDavBackupSettings, listBackups, restoreBackup, testWebDavBackupSettings, updateWebDavBackupSettings } from '../services/backupService.js';
 import { createWebhook, deleteWebhook, listWebhooks, testWebhook, updateWebhook } from '../services/webhookService.js';
@@ -63,6 +64,21 @@ function safeLog(ctx, promise) {
   if (ctx?.waitUntil && promise && typeof promise.then === 'function') {
     ctx.waitUntil(promise.catch(() => {}));
   }
+}
+
+/**
+ * 读接口访问级别：管理员会话、有效 Bearer Token、私人书签 Cookie 任一即授予私人书签读取。
+ * token 是密码级凭据（见 docs/adr/0002-token-private-bookmark-read.md）。
+ */
+export async function getReadAccess(request, env) {
+  const adminAuthed = await isAdminAuthenticated(request, env);
+  if (adminAuthed) {
+    return { adminAuthed: true, tokenAuthenticated: true, privateAccess: true };
+  }
+  const tokenAuth = await validateApiToken(request, env, '');
+  const tokenAuthenticated = Boolean(tokenAuth?.authenticated);
+  const privateAccess = tokenAuthenticated || (await hasPrivateBookmarkAccess(request, env));
+  return { adminAuthed: false, tokenAuthenticated, privateAccess };
 }
 
 export async function handleApiRequest(request, env, ctx) {
@@ -178,8 +194,7 @@ export async function handleApiRequest(request, env, ctx) {
     if (path === '/search' && method === 'GET') {
       const keyword = url.searchParams.get('q') || url.searchParams.get('keyword') || '';
       const limit = url.searchParams.get('limit') || 50;
-      const adminAuthed = await isAdminAuthenticated(request, env);
-      const privateAccess = adminAuthed || await hasPrivateBookmarkAccess(request, env);
+      const { adminAuthed, privateAccess } = await getReadAccess(request, env);
       const data = await searchSites(env, { keyword, limit, includePrivate: privateAccess, adminAuthed, privateUnlocked: privateAccess });
       const recordTask = recordSearchTerm(env, keyword, data.length).catch((error) => console.warn(`[search] failed to record keyword: ${error.message}`));
       if (ctx?.waitUntil) ctx.waitUntil(recordTask);
@@ -189,8 +204,7 @@ export async function handleApiRequest(request, env, ctx) {
 
     if (path === '/ai/chat' && method === 'POST') {
       const body = await request.json();
-      const adminAuthed = await isAdminAuthenticated(request, env);
-      const privateAccess = adminAuthed || await hasPrivateBookmarkAccess(request, env);
+      const { adminAuthed, privateAccess } = await getReadAccess(request, env);
       const result = await chatWithAiAssistant(env, request, {
         message: body?.message,
         previousSites: body?.previousSites || body?.contextSites || [],
@@ -225,8 +239,7 @@ export async function handleApiRequest(request, env, ctx) {
       const tag = url.searchParams.get('tag') || '';
       const sort = url.searchParams.get('sort') || '';
       const health = url.searchParams.get('health') || '';
-      const adminAuthed = await isAdminAuthenticated(request, env);
-      const privateAccess = adminAuthed || await hasPrivateBookmarkAccess(request, env);
+      const { adminAuthed, privateAccess } = await getReadAccess(request, env);
 
       if (isPrivateBookmarkCategory(catalog) && !privateAccess) {
         return errorResponse('Private bookmarks require access password', 401);
@@ -444,6 +457,48 @@ export async function handleApiRequest(request, env, ctx) {
         safeLog(ctx, logOperation(env, { action: OPERATION_LOG_ACTIONS.SITE_DELETE, target: 'site', targetId: id, request }));
         return jsonResponse({ code: 200, message: 'Config deleted successfully', del });
       }
+    }
+
+    if (path === '/sync/bookmarks' && method === 'POST') {
+      const unauthorized = await requireAdmin(request, env, { allowApiToken: true, scope: 'write' });
+      if (unauthorized) return unauthorized;
+      const body = await request.json().catch(() => ({}));
+      const items = Array.isArray(body?.items) ? body.items : [];
+      const source = body?.source === 'html' ? 'html' : 'extension';
+      const preview = body?.preview === true || url.searchParams.get('preview') === '1';
+      try {
+        const result = await syncBookmarks(env, items, { source, request, dryRun: preview });
+        if (!preview) {
+          safeLog(ctx, logOperation(env, {
+            action: OPERATION_LOG_ACTIONS.SYNC_BOOKMARK,
+            target: 'site',
+            summary: `书签同步（${source}）：新增 ${result.stats.added} 更新 ${result.stats.updated} 删除 ${result.stats.deleted} 跳过 ${result.stats.skipped} 失败 ${result.stats.failed}`,
+            request,
+          }));
+        }
+        return jsonResponse({ code: 200, data: result });
+      } catch (error) {
+        if (error?.message === SYNC_EMPTY_SNAPSHOT_ERROR) {
+          return errorResponse('未发现可同步的书签，同步已取消（空快照保护）', 400);
+        }
+        throw error;
+      }
+    }
+
+    if (/^\/(?:config|sites)\/\d+\/unsync$/.test(path) && method === 'POST') {
+      const unauthorized = await requireAdmin(request, env, { allowApiToken: true, scope: 'write' });
+      if (unauthorized) return unauthorized;
+      const siteId = path.split('/').filter(Boolean)[1];
+      const result = await unsyncSite(env, siteId);
+      if (!result.exists) return errorResponse('Not found', 404);
+      safeLog(ctx, logOperation(env, {
+        action: OPERATION_LOG_ACTIONS.SYNC_BOOKMARK_UNSYNC,
+        target: 'site',
+        targetId: siteId,
+        summary: result.changed ? '解除书签同步' : '解除书签同步（已是手动书签）',
+        request,
+      }));
+      return jsonResponse({ code: 200, message: '已解除同步，该书签将不再参与同步对齐' });
     }
 
     if (path === '/settings/system' && method === 'GET') {

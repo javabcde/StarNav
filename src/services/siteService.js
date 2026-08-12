@@ -371,6 +371,8 @@ const SITE_SELECT_COLUMNS = `
   s.last_checked_at,
   s.last_status_code,
   s.last_error,
+  s.sync_source,
+  s.browser_bookmark_id,
   s.create_time,
   s.update_time
 `;
@@ -442,7 +444,13 @@ export async function getSites(env, { page = 1, pageSize = 10, catalog = '', key
   const resolvedSpaceId = hasSpaceFilter ? (space_id ? Number(space_id) : await resolveSpaceId(env, space)) : null;
   const orderSql = sort === 'manual'
     ? 'ORDER BY s.sort_order ASC, datetime(s.create_time) DESC, s.id DESC'
-    : 'ORDER BY datetime(s.create_time) DESC, s.id DESC';
+    : sort === 'hits'
+      ? 'ORDER BY COALESCE(s.hits, 0) DESC, datetime(s.create_time) DESC, s.id DESC'
+      : sort === 'last_visit'
+        ? 'ORDER BY COALESCE(datetime(s.last_visit_time), datetime(s.create_time)) DESC, s.id DESC'
+        : sort === 'name'
+          ? 'ORDER BY s.name ASC, s.id DESC'
+          : 'ORDER BY datetime(s.create_time) DESC, s.id DESC';
 
   const where = [];
   const binds = [];
@@ -560,6 +568,8 @@ export async function getSites(env, { page = 1, pageSize = 10, catalog = '', key
         NULL AS last_checked_at,
         NULL AS last_status_code,
         NULL AS last_error,
+        s.sync_source,
+        s.browser_bookmark_id,
         s.create_time,
         s.create_time AS update_time
       FROM sites s
@@ -646,6 +656,8 @@ export async function getAllSites(env, { space = '', space_id = null } = {}) {
         NULL AS last_checked_at,
         NULL AS last_status_code,
         NULL AS last_error,
+        s.sync_source,
+        s.browser_bookmark_id,
         s.create_time,
         s.create_time AS update_time
       FROM sites s
@@ -947,6 +959,8 @@ export async function searchSites(env, { keyword = '', limit = 50, includePrivat
           NULL AS last_checked_at,
           NULL AS last_status_code,
           NULL AS last_error,
+          s.sync_source,
+          s.browser_bookmark_id,
           s.create_time,
           s.create_time AS update_time
         FROM sites s

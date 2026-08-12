@@ -163,6 +163,30 @@
       background: color-mix(in srgb, var(--warning) 10%, transparent);
     }
 
+    .sync-section {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px dashed var(--border);
+    }
+
+    .sync-section button {
+      width: 100%;
+    }
+
+    #syncResult {
+      display: none;
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      color: var(--text);
+      background: var(--card);
+    }
+
     .input-action {
       position: relative;
       display: block;
@@ -209,6 +233,217 @@
       font-size: 12px;
       line-height: 1.5;
     }
+
+    /* ===== 三 Tab ===== */
+    .tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 7px 0;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--card);
+      font-size: 13px;
+      font-weight: 800;
+      transition: background .15s, color .15s, border-color .15s;
+    }
+
+    .tab:hover {
+      color: var(--text);
+      border-color: var(--primary);
+    }
+
+    .tab.active {
+      color: #fff;
+      background: var(--primary);
+      border-color: var(--primary);
+    }
+
+    /* ===== 浏览视图 ===== */
+    .browse-toolbar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .browse-toolbar input {
+      flex: 1;
+      min-width: 0;
+    }
+
+    #browseSort {
+      width: auto;
+      flex-shrink: 0;
+      padding: 9px 8px;
+    }
+
+    #browseRefresh {
+      flex-shrink: 0;
+      width: 40px;
+      height: 38px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #browseRefresh svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .browse-cats {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 6px;
+      margin-bottom: 12px;
+    }
+
+    .browse-cat {
+      flex-shrink: 0;
+      padding: 5px 12px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--text);
+      background: var(--card);
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .browse-cat:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    .browse-cat.active {
+      color: #fff;
+      background: var(--primary);
+      border-color: var(--primary);
+    }
+
+    .browse-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--card);
+      cursor: pointer;
+      transition: background .15s;
+    }
+
+    .browse-item + .browse-item {
+      margin-top: 8px;
+    }
+
+    .browse-item:hover {
+      background: color-mix(in srgb, var(--primary) 8%, var(--card));
+    }
+
+    .browse-logo {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      object-fit: cover;
+      flex-shrink: 0;
+    }
+
+    .browse-logo-placeholder {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .browse-item-body {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .browse-item-title {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .browse-item-host {
+      margin-top: 2px;
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #browseMore {
+      width: 100%;
+      margin-top: 10px;
+    }
+
+    #browseStatus {
+      min-height: 22px;
+      margin-top: 10px;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
+    .browse-empty {
+      padding: 28px 0;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .browse-skeleton {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 8px;
+      animation: browsePulse 1.2s ease-in-out infinite;
+    }
+
+    .browse-skeleton .sk-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+
+    .browse-skeleton .sk-line {
+      flex: 1;
+      height: 12px;
+      border-radius: 6px;
+      background: var(--border);
+    }
+
+    @keyframes browsePulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .45; }
+    }
   </style>
 </head>
 <body>
@@ -222,66 +457,105 @@
       </button>
     </header>
 
-    <div class="search-container" style="margin-bottom: 12px; border-bottom: 1px dashed var(--border); padding-bottom: 12px;">
-      <input id="pluginSearchInput" placeholder="🔍 搜索已有书签..." style="padding: 7px 10px; font-size: 13px;">
-      <div id="pluginSearchResults" style="display: none; max-height: 150px; overflow-y: auto; margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 4px;"></div>
-    </div>
+    <nav class="tabs">
+      <button id="tabBrowse" type="button" class="tab active">浏览</button>
+      <button id="tabCollect" type="button" class="tab">收藏</button>
+      <button id="tabSync" type="button" class="tab">同步</button>
+    </nav>
 
-    <label for="name">名称</label>
-    <input id="name">
-
-    <label for="url">URL</label>
-    <input id="url">
-
-    <label for="desc">描述</label>
-    <textarea id="desc" placeholder="可选，自动抓取后会填充"></textarea>
-
-    <div class="row">
-      <div>
-        <label for="catelog">分类</label>
-        <input id="catelog" placeholder="未分类" list="categoryList">
-      </div>
-      <div>
-        <label for="tags">标签</label>
-        <input id="tags" placeholder="逗号分隔" list="tagList">
-      </div>
-    </div>
-
-    <div class="row">
-      <div>
-        <label for="visibility">可见性</label>
-        <select id="visibility">
-          <option value="public">公开</option>
-          <option value="private">私密</option>
-          <option value="unlisted">不列出</option>
-          <option value="admin_only">仅管理员</option>
+    <!-- 浏览视图：站内书签浏览 -->
+    <section id="browse-view" class="view">
+      <div class="browse-toolbar">
+        <input id="browseSearch" placeholder="搜索站内书签..." autocomplete="off">
+        <select id="browseSort" title="排序">
+          <option value="">默认排序</option>
+          <option value="hits">热门</option>
+          <option value="last_visit">最近访问</option>
+          <option value="name">名称</option>
         </select>
+        <button id="browseRefresh" type="button" title="刷新" aria-label="刷新">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
+          </svg>
+        </button>
       </div>
-      <div>
-        <label for="logo">Logo URL</label>
-        <div class="input-action">
-          <input id="logo" placeholder="自动抓取">
-          <button id="fetchFaviconBtn" type="button" title="自动获取图标" aria-label="自动获取图标">✨</button>
+      <div id="browseCats" class="browse-cats"></div>
+      <div id="browseList" class="browse-list"></div>
+      <button id="browseMore" type="button" class="secondary" style="display:none;">加载更多</button>
+      <div id="browseStatus"></div>
+    </section>
+
+    <!-- 收藏视图：原有收藏表单 -->
+    <section id="collect-view" class="view" hidden>
+      <div class="search-container" style="margin-bottom: 12px; border-bottom: 1px dashed var(--border); padding-bottom: 12px;">
+        <input id="pluginSearchInput" placeholder="🔍 搜索已有书签..." style="padding: 7px 10px; font-size: 13px;">
+        <div id="pluginSearchResults" style="display: none; max-height: 150px; overflow-y: auto; margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 4px;"></div>
+      </div>
+
+      <label for="name">名称</label>
+      <input id="name">
+
+      <label for="url">URL</label>
+      <input id="url">
+
+      <label for="desc">描述</label>
+      <textarea id="desc" placeholder="可选，自动抓取后会填充"></textarea>
+
+      <div class="row">
+        <div>
+          <label for="catelog">分类</label>
+          <input id="catelog" placeholder="未分类" list="categoryList">
+        </div>
+        <div>
+          <label for="tags">标签</label>
+          <input id="tags" placeholder="逗号分隔" list="tagList">
         </div>
       </div>
-    </div>
 
-    <datalist id="categoryList"></datalist>
-    <datalist id="tagList"></datalist>
+      <div class="row">
+        <div>
+          <label for="visibility">可见性</label>
+          <select id="visibility">
+            <option value="public">公开</option>
+            <option value="private">私密</option>
+            <option value="unlisted">不列出</option>
+            <option value="admin_only">仅管理员</option>
+          </select>
+        </div>
+        <div>
+          <label for="logo">Logo URL</label>
+          <div class="input-action">
+            <input id="logo" placeholder="自动抓取">
+            <button id="fetchFaviconBtn" type="button" title="自动获取图标" aria-label="自动获取图标">✨</button>
+          </div>
+        </div>
+      </div>
 
-    <div id="duplicateBox"></div>
+      <datalist id="categoryList"></datalist>
+      <datalist id="tagList"></datalist>
 
-    <div class="actions">
-      <button id="saveBtn" class="full">保存书签</button>
-      <button id="fetchBtn" class="secondary">自动抓取</button>
-      <button id="checkDuplicateBtn" class="secondary">检测重复</button>
-      <button id="suggestCategoryBtn" class="secondary">推荐分类</button>
-      <button id="suggestTagsBtn" class="secondary">推荐标签</button>
-      <button id="forceSaveBtn" class="danger full" style="display:none;">仍然强制保存</button>
-    </div>
+      <div id="duplicateBox"></div>
+
+      <div class="actions">
+        <button id="saveBtn" class="full">保存书签</button>
+        <button id="fetchBtn" class="secondary">自动抓取</button>
+        <button id="checkDuplicateBtn" class="secondary">检测重复</button>
+        <button id="suggestCategoryBtn" class="secondary">推荐分类</button>
+        <button id="suggestTagsBtn" class="secondary">推荐标签</button>
+        <button id="forceSaveBtn" class="danger full" style="display:none;">仍然强制保存</button>
+      </div>
+    </section>
+
+    <!-- 同步视图：原有一键同步 -->
+    <section id="sync-view" class="view" hidden>
+      <div class="sync-section">
+        <button id="syncBtn" class="secondary" title="将浏览器书签一键同步到 StarNav">一键同步</button>
+        <div id="syncResult"></div>
+      </div>
+    </section>
 
     <div id="status"></div>
-    <div class="tiny">生产版支持 Bearer Token、自动抓取、AI 推荐、重复检测、分类/标签候选和强制保存。</div>
+    <div class="tiny">生产版支持站内浏览、Bearer Token、自动抓取、AI 推荐、重复检测、分类/标签候选、强制保存和一键同步。</div>
   </main>
 
   <script src="popup.js"></script>

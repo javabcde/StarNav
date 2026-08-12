@@ -27,6 +27,8 @@
 
 公开接口会按当前访问权限过滤私密、隐藏和仅管理员可见的书签。
 
+**私人书签可见性**：`/api/sites`、`/api/search`、`/api/ai/chat` 的私人书签过滤，在以下任一凭据下可见私人书签分类：后台管理员 Cookie、私人书签访问 Cookie、**有效 Bearer Token**。Token 是密码级凭据——持有 token 的第三方客户端等同于"知道私人书签密码"（见 [ADR-0002](adr/0002-token-private-bookmark-read.md)）。匿名访问仍不可见私人书签。
+
 ## 3. 高级搜索示例
 
 ```bash

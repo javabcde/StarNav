@@ -99,6 +99,7 @@ export const adminHtml = `<!DOCTYPE html>
           <span class="toggle-icon">◀</span>
         </button>
         <button class="tab-button active" data-tab="config" title="书签列表"><span class="tab-icon">🔖</span><span class="tab-text">书签列表</span></button>
+        <button class="tab-button" data-tab="sync" title="书签同步"><span class="tab-icon">🔄</span><span class="tab-text">书签同步</span></button>
         <button class="tab-button" data-tab="pending" title="待审列表"><span class="tab-icon">⏳</span><span class="tab-text">待审列表</span></button>
         <button class="tab-button" data-tab="submissionAnalytics" title="提交分析"><span class="tab-icon">📊</span><span class="tab-text">提交分析</span></button>
         <button class="tab-button" data-tab="visitAnalytics" title="访问分析"><span class="tab-icon">📈</span><span class="tab-text">访问分析</span></button>
@@ -191,6 +192,29 @@ export const adminHtml = `<!DOCTYPE html>
             <button id="pageJumpBtn" type="button">跳转</button>
           </div>
         </div>
+      </div>
+
+      <div id="sync" class="tab-content">
+        <div class="category-toolbar">
+          <p class="category-hint">一键同步：将浏览器导出的 HTML 收藏夹与 StarNav 对齐（新增 / 更新 / 删除）。请先选择文件并预览差异，确认无误后再执行同步。同步书签在列表中会带有「同步」徽标，可在书签列表解除。</p>
+        </div>
+        <section class="webdav-card sync-card">
+          <div class="webdav-card-head">
+            <div>
+              <span class="webdav-eyebrow">Bookmark Sync</span>
+              <h3>同步书签</h3>
+              <p>选择浏览器导出的 Netscape 格式 HTML 书签文件（Chrome / Edge 的「导出书签」）。根文件夹（书签栏 / 其他书签 / 移动设备书签等）不进入分类路径，自定义文件夹按「父/子」归类，无文件夹的书签归入「未分类」。</p>
+            </div>
+          </div>
+          <div class="sync-controls" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:4px 0 14px">
+            <input type="file" id="syncFileInput" accept=".html,text/html" title="选择浏览器导出的 HTML 书签文件">
+            <button id="syncPreviewBtn" class="check-btn" type="button">预览差异</button>
+            <button id="syncConfirmBtn" type="button" disabled>确认同步</button>
+          </div>
+          <div id="syncStatus" class="ai-status" style="display:none;"></div>
+          <div id="syncPreviewBox" class="bulk-result-panel" style="display:none;"></div>
+          <div id="syncResultBox" class="bulk-result-panel" style="display:none;"></div>
+        </section>
       </div>
 
       <div id="spaces" class="tab-content">

@@ -16,8 +16,23 @@ const els = {
   suggestTagsBtn: document.getElementById('suggestTagsBtn'),
   checkDuplicateBtn: document.getElementById('checkDuplicateBtn'),
   optionsBtn: document.getElementById('optionsBtn'),
+  syncBtn: document.getElementById('syncBtn'),
+  syncResult: document.getElementById('syncResult'),
   status: document.getElementById('status'),
   duplicateBox: document.getElementById('duplicateBox'),
+  tabBrowse: document.getElementById('tabBrowse'),
+  tabCollect: document.getElementById('tabCollect'),
+  tabSync: document.getElementById('tabSync'),
+  browseView: document.getElementById('browse-view'),
+  collectView: document.getElementById('collect-view'),
+  syncView: document.getElementById('sync-view'),
+  browseSearch: document.getElementById('browseSearch'),
+  browseSort: document.getElementById('browseSort'),
+  browseRefresh: document.getElementById('browseRefresh'),
+  browseCats: document.getElementById('browseCats'),
+  browseList: document.getElementById('browseList'),
+  browseMore: document.getElementById('browseMore'),
+  browseStatus: document.getElementById('browseStatus'),
 };
 
 let config = {};
@@ -99,6 +114,36 @@ async function apiFetch(path, options = {}) {
 
 function escapeHTML(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
 
+// 浏览器书签根文件夹（不进入 folderPath）
+const ROOT_FOLDER_NAMES = new Set([
+  '书签栏', '其他书签', '移动设备书签',
+  'Bookmarks Bar', 'Other Bookmarks', 'Mobile Bookmarks',
+]);
+
+// 递归展平 chrome.bookmarks.getTree() 结果：
+// 跳过文件夹节点（无 url）；根文件夹（getTree 根节点之下第一层）不拼入 folderPath，
+// 其顶层书签 folderPath 为空；自定义文件夹嵌套拼接为「父/子」。
+function flattenBookmarks(nodes, parentPath = '', depth = 0) {
+  const items = [];
+  for (const node of nodes || []) {
+    if (node.url) {
+      items.push({
+        id: node.id,
+        title: node.title || '',
+        url: node.url,
+        folderPath: parentPath,
+      });
+      continue;
+    }
+    const isRootFolder = depth === 1 && ROOT_FOLDER_NAMES.has(node.title);
+    const childPath = isRootFolder ? '' : parentPath ? `${parentPath}/${node.title}` : node.title;
+    if (node.children && node.children.length) {
+      items.push(...flattenBookmarks(node.children, childPath, depth + 1));
+    }
+  }
+  return items;
+}
+
 function renderDatalist(el, items, getValue) {
   el.innerHTML = '';
   for (const item of items || []) {
@@ -165,6 +210,9 @@ async function loadConfig() {
 async function initPopup() {
   await loadConfig();
   restoreCachedExtensionIcon().catch(() => {});
+
+  // 站内浏览：打开即并行拉取首页列表与分类，互不阻塞（错误各自在浏览视图内展示）
+  Promise.all([loadBrowse(true), loadCategories()]).catch(() => {});
 
   const tab = await getActiveTab();
   if (tab) {
@@ -276,6 +324,47 @@ async function saveBookmark({ force = false } = {}) {
   return result;
 }
 
+// 展示同步结果：统计 + 失败明细（url + reason）
+function renderSyncResult(data) {
+  const stats = data.stats || {};
+  const failedItems = Array.isArray(data.failedItems) ? data.failedItems : [];
+  const count = (n) => n ?? 0;
+
+  let html = `新增 ${count(stats.added)} · 更新 ${count(stats.updated)} · 删除 ${count(stats.deleted)} · 跳过 ${count(stats.skipped)} · 失败 ${count(stats.failed)}`;
+
+  if (failedItems.length) {
+    html += '<div style="margin-top: 8px; padding-top: 8px; max-height: 132px; overflow-y: auto; border-top: 1px dashed var(--border);">';
+    html += failedItems.map((f) => {
+      const url = escapeHTML(f.url || '未知地址');
+      const reason = escapeHTML(f.reason || '未知原因');
+      return `<div style="padding: 3px 0; font-size: 12px; word-break: break-all;"><span style="color: var(--danger);">${url}</span><span style="color: var(--muted);"> — ${reason}</span></div>`;
+    }).join('');
+    html += '</div>';
+  }
+
+  els.syncResult.innerHTML = html;
+  els.syncResult.style.display = 'block';
+}
+
+async function syncBookmarks() {
+  const tree = await chrome.bookmarks.getTree();
+  const items = flattenBookmarks(tree);
+
+  if (!items.length) {
+    setStatus('未发现可同步的书签', 'warning');
+    return false;
+  }
+
+  const result = await apiFetch('/api/sync/bookmarks', {
+    method: 'POST',
+    body: JSON.stringify({ items, source: 'extension' }),
+  });
+
+  renderSyncResult(result?.data || {});
+  setStatus('同步完成。', 'success');
+  return true;
+}
+
 async function runAction(button, action) {
   button.disabled = true;
   setStatus('处理中...');
@@ -301,6 +390,26 @@ els.checkDuplicateBtn.addEventListener('click', () => runAction(els.checkDuplica
 els.saveBtn.addEventListener('click', () => runAction(els.saveBtn, () => saveBookmark({ force: false })));
 els.forceSaveBtn.addEventListener('click', () => runAction(els.forceSaveBtn, () => saveBookmark({ force: true })));
 els.optionsBtn.addEventListener('click', () => chrome.runtime.openOptionsPage());
+
+els.syncBtn.addEventListener('click', async () => {
+  els.syncBtn.disabled = true;
+  els.syncResult.style.display = 'none';
+  setStatus('同步中...');
+  try {
+    // 展平结果为 0 条时保持禁用（无书签可同步）
+    if (await syncBookmarks()) {
+      els.syncBtn.disabled = false;
+    }
+  } catch (error) {
+    els.syncBtn.disabled = false;
+    if (error.status === 400) {
+      // 空快照保护等：展示服务端返回的 message
+      setStatus(error.message || '同步未执行。', 'warning');
+    } else {
+      setStatus(error.message || '同步失败。', 'error');
+    }
+  }
+});
 
 els.url.addEventListener('change', () => {
   showDuplicate(null);
@@ -367,5 +476,230 @@ if (searchInput && searchResults) {
     }, 300);
   });
 }
+
+// ===== 三 Tab 切换 =====
+const TAB_CONFIG = [
+  { btn: els.tabBrowse, view: els.browseView },
+  { btn: els.tabCollect, view: els.collectView },
+  { btn: els.tabSync, view: els.syncView },
+];
+
+function switchTab(activeBtn) {
+  for (const { btn, view } of TAB_CONFIG) {
+    const isActive = btn === activeBtn;
+    btn.classList.toggle('active', isActive);
+    view.hidden = !isActive;
+  }
+}
+
+els.tabBrowse.addEventListener('click', () => switchTab(els.tabBrowse));
+els.tabCollect.addEventListener('click', () => switchTab(els.tabCollect));
+els.tabSync.addEventListener('click', () => switchTab(els.tabSync));
+
+// ===== 站内书签浏览 =====
+const browseState = {
+  page: 1,
+  pageSize: 30,
+  keyword: '',
+  catelog: '',
+  sort: '',
+  total: 0,
+  items: [],
+  loading: false,
+};
+
+const BROWSE_AVATAR_COLORS = ['#2563eb', '#7c3aed', '#db2777', '#ea580c', '#16a34a', '#0891b2', '#4f46e5', '#ca8a04'];
+
+function browseAvatarColor(text) {
+  let hash = 0;
+  const s = String(text || '');
+  for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+  return BROWSE_AVATAR_COLORS[hash % BROWSE_AVATAR_COLORS.length];
+}
+
+function browseHostOf(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url || '';
+  }
+}
+
+// /api/config 响应：data 为站点数组 + 顶层 total；兼容 data.list 形态
+function extractSiteList(result) {
+  const data = result && result.data;
+  if (Array.isArray(data)) return { list: data, total: Number(result.total) || data.length };
+  if (data && Array.isArray(data.list)) return { list: data.list, total: Number(data.total != null ? data.total : result.total) || data.list.length };
+  return { list: [], total: 0 };
+}
+
+function renderBrowseStatus(message, type = '') {
+  els.browseStatus.textContent = message;
+  els.browseStatus.style.color = type === 'error' ? '#dc2626' : type === 'success' ? '#16a34a' : '';
+}
+
+function browseSkeletonHTML() {
+  let html = '';
+  for (let i = 0; i < 3; i++) {
+    html += '<div class="browse-skeleton"><span class="sk-avatar"></span><span class="sk-line"></span></div>';
+  }
+  return html;
+}
+
+function renderBrowseItem(item) {
+  const name = String(item.name || item.title || '').trim() || '未命名';
+  const url = item.url || '';
+  const letter = (name.charAt(0) || '?').toUpperCase();
+  const color = browseAvatarColor(name);
+  const logoHtml = item.logo
+    ? `<img class="browse-logo" src="${escapeHTML(item.logo)}" alt="" loading="lazy" data-letter="${escapeHTML(letter)}" data-color="${color}">`
+    : `<span class="browse-logo-placeholder" style="background:${color}">${escapeHTML(letter)}</span>`;
+  return `
+    <div class="browse-item" data-url="${escapeHTML(url)}" title="${escapeHTML(url)}">
+      ${logoHtml}
+      <div class="browse-item-body">
+        <div class="browse-item-title">${escapeHTML(name)}</div>
+        <div class="browse-item-host">${escapeHTML(browseHostOf(url))}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderBrowseList() {
+  renderBrowseStatus('');
+  if (!browseState.items.length) {
+    els.browseList.innerHTML = '<div class="browse-empty">未找到书签</div>';
+    return;
+  }
+  els.browseList.innerHTML = browseState.items.map(renderBrowseItem).join('');
+
+  for (const itemEl of els.browseList.querySelectorAll('.browse-item')) {
+    const targetUrl = itemEl.dataset.url;
+    // logo 加载失败：隐藏图片并显示首字母占位（MV3 CSP 禁止内联 onerror，改用监听器）
+    const logoImg = itemEl.querySelector('img.browse-logo');
+    if (logoImg) {
+      logoImg.addEventListener('error', () => {
+        const placeholder = document.createElement('span');
+        placeholder.className = 'browse-logo-placeholder';
+        placeholder.textContent = logoImg.dataset.letter || '?';
+        placeholder.style.background = logoImg.dataset.color || '#2563eb';
+        logoImg.replaceWith(placeholder);
+      }, { once: true });
+    }
+    if (targetUrl) {
+      itemEl.addEventListener('click', async () => {
+        try {
+          await chrome.tabs.create({ url: targetUrl, active: true });
+        } catch (error) {
+          renderBrowseStatus(error.message || '打开失败', 'error');
+          return;
+        }
+        window.close();
+      });
+    }
+  }
+}
+
+function updateBrowseMore() {
+  const hasMore = browseState.items.length < browseState.total;
+  els.browseMore.style.display = hasMore ? 'block' : 'none';
+  els.browseMore.textContent = '加载更多';
+}
+
+async function loadBrowse(reset = false) {
+  if (browseState.loading) return;
+  browseState.loading = true;
+  els.browseMore.disabled = true;
+
+  if (reset) {
+    browseState.page = 1;
+    browseState.items = [];
+    browseState.total = 0;
+    renderBrowseStatus('');
+    els.browseList.innerHTML = browseSkeletonHTML();
+  } else {
+    els.browseMore.textContent = '加载中...';
+  }
+
+  const params = new URLSearchParams({
+    page: String(browseState.page),
+    pageSize: String(browseState.pageSize),
+    keyword: browseState.keyword,
+    catalog: browseState.catelog,
+    sort: browseState.sort,
+  });
+
+  try {
+    const result = await apiFetch(`/api/config?${params.toString()}`);
+    const { list, total } = extractSiteList(result);
+    browseState.total = total;
+    browseState.items = reset ? list : browseState.items.concat(list);
+    browseState.page += 1;
+    renderBrowseList();
+  } catch (error) {
+    if (reset) els.browseList.innerHTML = '';
+    if (error.status === 401) {
+      renderBrowseStatus('Token 无效，请到设置页重新填写', 'error');
+    } else {
+      renderBrowseStatus(error.message || (reset ? '加载失败' : '加载更多失败'), 'error');
+    }
+  } finally {
+    browseState.loading = false;
+    updateBrowseMore();
+    els.browseMore.disabled = false;
+  }
+}
+
+let browseCategories = [];
+
+async function loadCategories() {
+  try {
+    const result = await apiFetch('/api/categories');
+    const raw = Array.isArray(result && result.data) ? result.data : [];
+    browseCategories = raw.map((c) => (c && String(c.name || '')).trim()).filter(Boolean);
+  } catch {
+    browseCategories = [];
+  }
+  renderCategories();
+}
+
+function renderCategories() {
+  const cats = ['', ...browseCategories];
+  els.browseCats.innerHTML = cats.map((cat) => {
+    const isActive = browseState.catelog === cat;
+    return `<button type="button" class="browse-cat${isActive ? ' active' : ''}" data-cat="${escapeHTML(cat)}">${escapeHTML(cat || '全部')}</button>`;
+  }).join('');
+
+  for (const btn of els.browseCats.querySelectorAll('.browse-cat')) {
+    btn.addEventListener('click', () => {
+      const cat = btn.dataset.cat || '';
+      if (browseState.catelog === cat) return;
+      browseState.catelog = cat;
+      renderCategories();
+      loadBrowse(true);
+    });
+  }
+}
+
+let browseSearchTimer = null;
+els.browseSearch.addEventListener('input', () => {
+  clearTimeout(browseSearchTimer);
+  browseSearchTimer = setTimeout(() => {
+    const keyword = els.browseSearch.value.trim();
+    if (keyword === browseState.keyword) return;
+    browseState.keyword = keyword;
+    loadBrowse(true);
+  }, 300);
+});
+
+els.browseSort.addEventListener('change', () => {
+  const sort = els.browseSort.value;
+  if (sort === browseState.sort) return;
+  browseState.sort = sort;
+  loadBrowse(true);
+});
+
+els.browseRefresh.addEventListener('click', () => loadBrowse(true));
+els.browseMore.addEventListener('click', () => loadBrowse(false));
 
 initPopup();
