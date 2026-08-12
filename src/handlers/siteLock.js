@@ -54,7 +54,11 @@ export async function handleSiteLockRequest(request, env) {
     return errorResponse('Site is locked', 403);
   }
 
-  // 页面：302 到锁页，携带同源回跳地址。
+  // 页面：锁页位于 /，携带同源回跳地址；访问 / 直接渲染锁页（避免 302 环）。
+  if (path === '/') {
+    const i18n = resolveI18n(request);
+    return renderSiteLockPage({ next: url.searchParams.get('next') || '', i18n });
+  }
   const next = `${path}${url.search}`;
   return new Response(null, {
     status: 302,

@@ -179,13 +179,17 @@ test('锁未启用时 handler 放行所有请求', async () => {
   assert.equal(await handleSiteLockRequest(req('https://x/go/1'), env), null);
 });
 
-test('启用后匿名页面请求 302 到锁页并携带同源回跳', async () => {
+test('启用后匿名页面请求：/ 渲染锁页，其余 302 到锁页并携带同源回跳', async () => {
   const { env } = createMockEnv();
   await updateSiteLockPassword(env, 's3cret');
 
   const home = await handleSiteLockRequest(req('https://x/'), env);
-  assert.equal(home.status, 302);
-  assert.equal(home.headers.get('Location'), '/?next=%2F');
+  assert.equal(home.status, 200);
+  assert.ok((await home.text()).includes('name="password"'), '应渲染锁页表单');
+
+  const homeWithNext = await handleSiteLockRequest(req('https://x/?next=%2Fgo%2F1'), env);
+  assert.equal(homeWithNext.status, 200);
+  assert.ok((await homeWithNext.text()).includes('value="/go/1"'), '锁页应保留同源回跳地址');
 
   const go = await handleSiteLockRequest(req('https://x/go/123?x=1'), env);
   assert.equal(go.status, 302);
