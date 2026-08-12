@@ -40,12 +40,10 @@ jobs:
           ls -la dist/
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: StarNav 浏览器插件 ${{ github.ref_name }}
-          update_release_name: true
-          update_release_body: true
           files: dist/star-nav-extension-v*.zip
           body: |
             MV3 插件 zip：下载后解压，打开 chrome://extensions → 开启开发者模式 → 「加载已解压的扩展程序」选择解压目录。
@@ -53,3 +51,9 @@ jobs:
             配置：插件设置页填写 StarNav 地址与 Bearer Token（后台 Token 管理创建，需 write scope）。
 
             能力：收藏当前页（查重/自动抓取/AI 推荐）、站内书签浏览（搜索/分类/排序/加载更多）、一键同步浏览器收藏（以浏览器为事实源，手动书签不覆盖）。
+
+      - name: Fix release title
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit "$GITHUB_REF_NAME" --title "StarNav 浏览器插件 ${GITHUB_REF_NAME}"
