@@ -43,7 +43,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: StarNav 浏览器插件 v${{ github.ref_name }}
+          name: StarNav 浏览器插件 ${{ github.ref_name }}
           files: dist/star-nav-extension-v*.zip
           body: |
             MV3 插件 zip：下载后解压，打开 chrome://extensions → 开启开发者模式 → 「加载已解压的扩展程序」选择解压目录。
