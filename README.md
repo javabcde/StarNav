@@ -4,6 +4,14 @@
 
 本项目基于原始项目 [wangwangit/nav](https://github.com/wangwangit/nav) 持续迭代，已从早期单文件 Worker 改造为模块化架构。当前版本更适合作为可长期维护的个人导航站、团队工具导航站或轻量级书签管理系统。
 
+<div align="center">
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/javabcde/StarNav)
+
+⚠️ 按钮用于快速创建初始项目，D1/KV 绑定、数据库初始化与管理员账号仍需手动补齐，见 [快速部署](#-快速部署)。
+
+</div>
+
 ## 🖼️ 界面预览
 
 ### 首页预览
@@ -213,7 +221,28 @@ npx wrangler d1 execute book --file=schema.sql
 
 ## 🚀 快速部署
 
-你可以选择两种部署路径：
+<div align="center">
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/javabcde/StarNav)
+
+</div>
+
+> ⚠️ 一键部署按钮只创建初始项目：D1/KV 绑定、数据库初始化和管理员账号仍需要手动补齐，请按下文「一键部署路径」或完整教程 [docs/web-deployment-guide.md](docs/web-deployment-guide.md) 操作。
+
+### 一键部署路径
+
+适合快速起步：点击上方按钮后，Cloudflare 会在你的 GitHub 账号下创建并连接一个 fork 仓库，随后自动部署 Worker。收尾还需要 4 步：
+
+> 提示：若你是在**自己的 fork** 中阅读本 README，按钮链接仍指向原仓库 `javabcde/StarNav`（GitHub 不会改写仓库内链接）。想部署你 fork 的版本，请把按钮 URL 中的仓库名改为你的 fork 地址，例如 `https://deploy.workers.cloudflare.com/?url=https://github.com/你的用户名/StarNav`。
+
+1. **确认/创建 D1 数据库**：若按钮流程未自动创建，在 Cloudflare 控制台新建 D1（`book`），把生成的 `database_id` 写回 fork 仓库的 `wrangler.toml`（当前为占位符 `REPLACE_WITH_YOUR_D1_DATABASE_ID`，必须替换）。
+2. **创建 KV 命名空间**：新建 KV 命名空间（`NAV_AUTH`），把 namespace `id` 写回 fork 仓库的 `wrangler.toml`（当前为占位符 `REPLACE_WITH_YOUR_KV_NAMESPACE_ID`，必须替换）。
+3. **初始化数据库**：在 fork 仓库执行 `npx wrangler d1 execute book --file=schema.sql --remote`。
+4. **设置管理员账号**：向 KV `NAV_AUTH` 写入 `admin_username` 与 `admin_password`（命令见下方 Wrangler 步骤 5）。
+
+完成后按「Wrangler 部署」步骤 6–7 完成质量检查与最终部署。
+
+你也可以选择两种部署路径：
 
 - **网页版全流程部署**：适合不熟悉命令行和 Wrangler 的用户，见 [Cloudflare 网页版全流程部署教程](docs/web-deployment-guide.md)。
 - **Wrangler 部署**：适合开发者和需要本地调试、自动化发布的场景，按下方步骤执行。
@@ -230,7 +259,7 @@ npm install
 npx wrangler d1 create book
 ```
 
-将生成的数据库 ID 写入 `wrangler.toml` 中的 D1 绑定。
+将生成的数据库 ID 写入 `wrangler.toml` 中的 D1 绑定（当前为占位符 `REPLACE_WITH_YOUR_D1_DATABASE_ID`，必须替换为真实 ID 后才能部署）。
 
 ### 3. 初始化数据库
 
@@ -244,7 +273,7 @@ npx wrangler d1 execute book --file=schema.sql --remote
 npx wrangler kv namespace create NAV_AUTH
 ```
 
-将生成的 namespace id 写入 `wrangler.toml` 中的 KV 绑定。
+将生成的 namespace id 写入 `wrangler.toml` 中的 KV 绑定（当前为占位符 `REPLACE_WITH_YOUR_KV_NAMESPACE_ID`，必须替换为真实 ID 后才能部署）。
 
 ### 5. 设置管理员账号密码
 
