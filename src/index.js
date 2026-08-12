@@ -2,6 +2,7 @@ import { handleApiRequest } from './handlers/api.js';
 import { handleAdminRequest } from './handlers/admin.js';
 import { handleGoRequest } from './handlers/go.js';
 import { handlePwaRequest } from './handlers/pwa.js';
+import { handleSiteLockRequest } from './handlers/siteLock.js';
 import { renderHomePage } from './pages/home.js';
 import { ensureSchema } from './services/migrationService.js';
 import { runScheduledHealthCheck } from './services/siteService.js';
@@ -14,6 +15,10 @@ async function routeRequest(request, env, ctx) {
 
   const pwaResponse = await handlePwaRequest(request, env);
   if (pwaResponse) return pwaResponse;
+
+  // 整站锁：置于 PWA 之后（其静态资源按顺序天然放行）、其余路由之前。
+  const lockResponse = await handleSiteLockRequest(request, env);
+  if (lockResponse) return lockResponse;
 
   const url = new URL(request.url);
 

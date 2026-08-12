@@ -1,14 +1,15 @@
 // 首页匿名响应的共享边缘缓存（Cloudflare Cache API）。
 //
-// 安全前提：只缓存"完全匿名"的首页 GET 响应——请求不携带管理员会话 / 私人书签访问 cookie，
+// 安全前提：只缓存"完全匿名"的首页 GET 响应——请求不携带管理员会话 / 私人书签访问 / 整站锁 cookie，
 // 因此渲染输出不含任何 per-user 个性化内容，可在边缘对所有访客安全共享。
-// 带登录态或私人解锁 cookie 的请求一律不缓存，杜绝把个性化视图泄露给他人。
+// 带登录态或私人解锁或整站锁解锁 cookie 的请求一律不缓存，杜绝把个性化视图泄露给他人。
 //
-// 全局数据（站点/分类/系统设置）变化通过较短的 s-maxage 自然失效；管理员带 cookie 不走缓存，
-// 改动后自身可立即看到最新结果。
+// 整站锁 cookie 必须留在这份名单里：否则"已解锁访客"的个性化首页会进入共享缓存，
+// 被后续"未解锁访客"的匿名请求命中——整站锁形同虚设（硬约束，勿删）。
 
 const SESSION_COOKIE_NAME = 'nav_admin_session';
 const PRIVATE_ACCESS_COOKIE_NAME = 'nav_private_bookmarks_access';
+const SITE_LOCK_COOKIE_NAME = 'nav_site_lock';
 const LANGUAGE_COOKIE = 'nav_lang';
 
 // 边缘缓存 60s，浏览器不缓存（max-age=0）以便始终回源命中最新的边缘副本。
@@ -43,7 +44,7 @@ export function buildHomeCacheKey(request) {
 
   const cookies = parseCookieHeader(request.headers.get('Cookie') || '');
   // 任一鉴权相关 cookie 存在 → 视为个性化请求，不缓存。
-  if (cookies[SESSION_COOKIE_NAME] || cookies[PRIVATE_ACCESS_COOKIE_NAME]) return null;
+  if (cookies[SESSION_COOKIE_NAME] || cookies[PRIVATE_ACCESS_COOKIE_NAME] || cookies[SITE_LOCK_COOKIE_NAME]) return null;
 
   // 影响渲染输出的维度纳入缓存键：语言 + 分类 / 排序 / 标签筛选。
   const lang = url.searchParams.get('lang') || cookies[LANGUAGE_COOKIE] || '';

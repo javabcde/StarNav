@@ -96,6 +96,13 @@ export const I18N_MESSAGES = {
     enterAccessPassword: '请输入访问密码',
     unlockAccess: '解锁访问',
     backHome: '返回首页',
+    siteLockTitle: '站点访问锁',
+    siteLockDesc: '该站点已启用访问密码，请输入密码后继续浏览。',
+    siteLockEnter: '请输入访问密码',
+    siteLockUnlock: '解锁访问',
+    siteLockRemember: '记住此次解锁',
+    siteLockError: '访问密码错误，请重试。',
+    siteLockLocked: '尝试过于频繁，请 15 分钟后再试。',
   },
   en: {
     pageTitle: 'StarNav - Curated Web Directory',
@@ -182,6 +189,13 @@ export const I18N_MESSAGES = {
     enterAccessPassword: 'Enter access password',
     unlockAccess: 'Unlock access',
     backHome: 'Back home',
+    siteLockTitle: 'Site Lock',
+    siteLockDesc: 'This site is password-protected. Enter the password to continue.',
+    siteLockEnter: 'Enter access password',
+    siteLockUnlock: 'Unlock access',
+    siteLockRemember: 'Keep me unlocked',
+    siteLockError: 'Incorrect password. Please try again.',
+    siteLockLocked: 'Too many attempts. Please try again in 15 minutes.',
   },
 };
 

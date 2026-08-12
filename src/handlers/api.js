@@ -45,6 +45,11 @@ import {
   isPrivateBookmarkCategory,
   updatePrivateBookmarkPassword,
 } from '../services/privateBookmarkService.js';
+import {
+  clearSiteLockPassword,
+  isSiteLockEnabled,
+  updateSiteLockPassword,
+} from '../services/siteLockService.js';
 import { OPERATION_LOG_ACTIONS, listOperationLogs, logOperation } from '../services/operationLogService.js';
 import { createBackup, deleteBackup, getBackupPayload, getWebDavBackupSettings, listBackups, restoreBackup, testWebDavBackupSettings, updateWebDavBackupSettings } from '../services/backupService.js';
 import { createWebhook, deleteWebhook, listWebhooks, testWebhook, updateWebhook } from '../services/webhookService.js';
@@ -494,6 +499,27 @@ export async function handleApiRequest(request, env, ctx) {
       const body = await request.json();
       await updatePrivateBookmarkPassword(env, body?.password);
       return jsonResponse({ code: 200, message: 'Private bookmark password updated successfully' });
+    }
+
+    if (path === '/settings/site-lock' && method === 'GET') {
+      const unauthorized = await requireAdmin(request, env);
+      if (unauthorized) return unauthorized;
+      return jsonResponse({ code: 200, data: { enabled: await isSiteLockEnabled(env) } });
+    }
+
+    if (path === '/settings/site-lock' && method === 'PUT') {
+      const unauthorized = await requireAdmin(request, env);
+      if (unauthorized) return unauthorized;
+      const body = await request.json();
+      await updateSiteLockPassword(env, body?.password);
+      return jsonResponse({ code: 200, message: 'Site lock password updated successfully' });
+    }
+
+    if (path === '/settings/site-lock' && method === 'DELETE') {
+      const unauthorized = await requireAdmin(request, env);
+      if (unauthorized) return unauthorized;
+      await clearSiteLockPassword(env);
+      return jsonResponse({ code: 200, message: 'Site lock disabled successfully' });
     }
 
     if (path === '/analytics/search' && method === 'GET') {

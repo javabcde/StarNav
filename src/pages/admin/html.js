@@ -511,6 +511,18 @@ export const adminHtml = `<!DOCTYPE html>
           <div id="announcementPreview" class="announcement-preview" style="display:none;"></div>
           <p class="category-hint">建议在更新公告内容后递增公告版本；开启“只显示一次”时，访客关闭后同版本不会重复弹出。</p>
         </div>
+        <div class="private-settings-card" id="siteLockSettingsCard">
+          <p class="category-hint" style="margin-top:0">整站锁：启用后，除后台登录页、后台静态资源与 PWA 资源外，全站需输入访问密码才能浏览；管理员登录后不受影响；解锁后可选 1 小时至 30 天免密。</p>
+          <label for="siteLockPassword">站点访问锁密码</label>
+          <div class="private-password-row">
+            <input type="password" id="siteLockPassword" placeholder="最少 4 位；留空表示不修改">
+            <button type="button" id="toggleSiteLockPassword">显示</button>
+            <button type="button" id="saveSiteLockPassword">保存密码</button>
+            <button type="button" id="clearSiteLockPassword" class="del-btn">清除密码并关闭锁</button>
+          </div>
+          <div id="siteLockStatus" class="ai-status" style="display:none;"></div>
+          <p class="category-hint">设置密码即启用整站锁；清除密码即关闭（默认不启用）。修改密码会使所有已解锁访客失效。</p>
+        </div>
       </div>
 
       <div id="systemHealth" class="tab-content">
