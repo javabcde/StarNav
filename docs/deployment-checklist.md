@@ -20,7 +20,7 @@ npm run quality
 确认 `wrangler.toml` 至少包含以下配置：
 
 ```toml
-name = "nav"
+name = "homepage"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
 

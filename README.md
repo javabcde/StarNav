@@ -248,6 +248,19 @@ npx wrangler d1 execute book --file=schema.sql
 - **网页版全流程部署**：适合不熟悉命令行和 Wrangler 的用户，见 [Cloudflare 网页版全流程部署教程](docs/web-deployment-guide.md)。
 - **Wrangler 部署**：适合开发者和需要本地调试、自动化发布的场景，按下方步骤执行。
 
+### 自动部署（GitHub Actions）
+
+仓库内置 `deploy.yml`：push 到 `main` 自动构建并部署到 Worker（`name = "homepage"`），并幂等执行 `schema.sql` 初始化。首次使用需在 GitHub 仓库 **Settings → Secrets and variables → Actions** 配置 4 个密钥：
+
+| Secret | 值 |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token（模板「Edit Cloudflare Workers」+ D1 编辑 + KV 编辑权限） |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账号 ID（dashboard 首页右下角） |
+| `D1_DATABASE_ID` | D1 `book` 的 `database_id` |
+| `KV_NAMESPACE_ID` | KV `NAV_AUTH` 的 namespace `id` |
+
+配置完成后 push 即自动部署；仓库内 `wrangler.toml` 保持占位符，真实 ID 只存在于 Secrets。管理员账号仍需手动写入 KV `NAV_AUTH`（`admin_username`/`admin_password`，见 Wrangler 部署步骤 5）。
+
 ### 1. 安装依赖
 
 ```bash

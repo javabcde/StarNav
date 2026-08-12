@@ -404,7 +404,7 @@ id = "这里填写你的 KV namespace id"
 GitHub 仓库中的 `wrangler.toml` 最终应类似：
 
 ```toml
-name = "nav"
+name = "homepage"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
 
@@ -420,8 +420,7 @@ id = "你的 KV namespace id"
 
 其中：
 
-- `name` 是 Worker 名称，可以改成 `starnav`、`nav` 等。
-- `main` 必须保持为 `src/index.js`。
+- `name` 是 Worker 名称，可以改成 `starnav`、`nav` 等。- `main` 必须保持为 `src/index.js`。
 - `NAV_DB` 和 `NAV_AUTH` 绑定名必须和代码一致。
 - `database_id` 和 `id` 必须是你自己 Cloudflare 账号里的真实资源 ID。
 
