@@ -5,11 +5,11 @@ compatibility_date = "2024-01-01"
 [[d1_databases]]
 binding = "NAV_DB"
 database_name = "homepage"
-# 占位符：手动部署前请按 README 快速部署步骤 2 替换为真实 database_id；
-# 一键部署按钮流程可识别占位符并引导创建。
+# 占位符：手动部署前请按 README 快速部署步骤替换为真实 database_id；
+# GitHub Actions 自动部署会从 Secrets 注入真实 ID。
 database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
 
 [[kv_namespaces]]
 binding = "NAV_AUTH"
-# 占位符：手动部署前请按 README 快速部署步骤 4 替换为真实 namespace id。
+# 占位符：手动部署前请按 README 快速部署步骤替换为真实 namespace id。
 id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"

@@ -4,14 +4,6 @@
 
 本项目从 [wangwangit/nav](https://github.com/wangwangit/nav) 迭代而来，已从早期单文件 Worker 改造为模块化架构，适合作为个人导航站、团队工具导航站或轻量级书签管理系统长期维护。
 
-<div align="center">
-
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/javabcde/StarNav)
-
-⚠️ 按钮只创建初始项目，D1/KV 绑定、数据库初始化和管理员账号仍需手动补齐，见 [快速部署](#-快速部署)。
-
-</div>
-
 ## 🖼️ 界面预览
 
 ![首页预览](https://img.110995.xyz/file/blog/34kEoYV9.png)
@@ -59,12 +51,6 @@
 
 ## 🚀 快速部署
 
-<div align="center">
-
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/javabcde/StarNav)
-
-</div>
-
 ### 自动部署（GitHub Actions）
 
 仓库内置 `deploy.yml`：push 到 `main` 自动构建并部署到 Worker（`name = "homepage"`），并幂等执行 `schema.sql` 初始化。首次使用在 GitHub 仓库 **Settings → Secrets and variables → Actions** 配置 4 个密钥：
@@ -77,17 +63,6 @@
 | `KV_NAMESPACE_ID` | KV `NAV_AUTH` 的 namespace `id` |
 
 配置后 push 即自动部署。仓库内 `wrangler.toml` 保持占位符，真实 ID 只存在 Secrets。管理员账号仍需手动写入 KV `NAV_AUTH`（见下方步骤 5）。
-
-### 一键部署按钮
-
-点击上方按钮后，Cloudflare 会在你的 GitHub 账号下创建并连接一个 fork 仓库，随后自动部署 Worker。收尾 4 步：
-
-> 若你在**自己的 fork** 中阅读本 README，按钮链接仍指向原仓库 `javabcde/StarNav`（GitHub 不会改写仓库内链接）。想部署你 fork 的版本，把按钮 URL 中的仓库名改为你的 fork 地址，例如 `https://deploy.workers.cloudflare.com/?url=https://github.com/你的用户名/StarNav`。
-
-1. **确认/创建 D1**：若按钮流程未自动创建，在 Cloudflare 控制台新建 D1（`homepage`），把 `database_id` 写回 fork 仓库的 `wrangler.toml`（占位符 `REPLACE_WITH_YOUR_D1_DATABASE_ID` 必须替换）。
-2. **创建 KV 命名空间**：新建 KV（`NAV_AUTH`），把 namespace `id` 写回 `wrangler.toml`（占位符 `REPLACE_WITH_YOUR_KV_NAMESPACE_ID` 必须替换）。
-3. **初始化数据库**：`npx wrangler d1 execute homepage --file=schema.sql --remote`。
-4. **设置管理员账号**：向 KV `NAV_AUTH` 写入 `admin_username` 与 `admin_password`。
 
 ### Wrangler 手动部署
 
