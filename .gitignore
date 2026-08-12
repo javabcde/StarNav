@@ -40,3 +40,6 @@ temp/
 
 # Claude Code local settings
 .claude/
+
+# Agent harness metadata
+.omp/
