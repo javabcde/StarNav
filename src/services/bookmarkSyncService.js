@@ -17,8 +17,43 @@ function chunk(items, size) {
   return batches;
 }
 
+/** 取文件夹路径的叶子名（最后一个分段）；空路径归「未分类」。 */
 function categoryFromFolderPath(folderPath) {
-  return cleanText(folderPath) || UNCATEGORIZED;
+  const text = cleanText(folderPath);
+  if (!text) return UNCATEGORIZED;
+  const segments = text.split('/').map((s) => s.trim()).filter(Boolean);
+  return segments.length ? segments[segments.length - 1] : UNCATEGORIZED;
+}
+
+/**
+ * 按文件夹路径建父子分类树（缺失即创建，复用已有同名分类）：
+ * '工作/开发' → 工作（无父级）+ 开发（父=工作）；空路径 → 未分类。
+ * @returns {Promise<{catelog: string, categoryId: number|null}>} 叶子分类信息
+ */
+async function ensureCategoryPath(env, folderPath) {
+  const text = cleanText(folderPath);
+  const segments = text ? text.split('/').map((s) => s.trim()).filter(Boolean) : [];
+  if (segments.length === 0) {
+    const category = await upsertCategoryByName(env, UNCATEGORIZED, 9999);
+    return { catelog: UNCATEGORIZED, categoryId: category?.id || null };
+  }
+  let parentId = null;
+  let leaf = null;
+  for (const seg of segments) {
+    await env.NAV_DB.batch([
+      env.NAV_DB.prepare(
+        'INSERT INTO categories (name, parent_id, sort_order) VALUES (?, ?, ?) ON CONFLICT(name) DO NOTHING'
+      ).bind(seg, parentId, 9999),
+      env.NAV_DB.prepare(
+        'INSERT INTO category_orders (catelog, sort_order) VALUES (?, ?) ON CONFLICT(catelog) DO NOTHING'
+      ).bind(seg, 9999),
+    ]);
+    const row = await env.NAV_DB.prepare('SELECT * FROM categories WHERE name = ?').bind(seg).first();
+    if (!row) return leaf || { catelog: UNCATEGORIZED, categoryId: null };
+    leaf = { catelog: row.name, categoryId: row.id };
+    parentId = row.id;
+  }
+  return leaf;
 }
 
 /**
@@ -118,7 +153,7 @@ export async function syncBookmarks(env, items, { source = 'extension', request,
       seenKeys.add(key);
       const catelog = categoryFromFolderPath(item.folderPath);
       if (site.name !== item.title || site.url !== item.url || site.catelog !== catelog) {
-        toUpdate.push({ id: site.id, name: item.title, url: item.url, url_key: key, catelog });
+        toUpdate.push({ id: site.id, name: item.title, url: item.url, url_key: key, catelog, folderPath: item.folderPath || '' });
       }
       continue;
     }
@@ -132,7 +167,7 @@ export async function syncBookmarks(env, items, { source = 'extension', request,
       seenKeys.add(key);
       const catelog = categoryFromFolderPath(item.folderPath);
       if (site.name !== item.title || site.catelog !== catelog) {
-        toUpdate.push({ id: site.id, name: item.title, url: site.url, url_key: site.url_key || key, catelog });
+        toUpdate.push({ id: site.id, name: item.title, url: site.url, url_key: site.url_key || key, catelog, folderPath: item.folderPath || '' });
       }
       continue;
     }
@@ -158,16 +193,15 @@ export async function syncBookmarks(env, items, { source = 'extension', request,
     }
   }
 
-  // 分类：只新建缺失分类（拍平「父/子」）
-  const catelogs = new Set([
-    ...toInsert.map((item) => categoryFromFolderPath(item.folderPath)),
-    ...toUpdate.map((u) => u.catelog),
+  // 分类：按文件夹路径建父子分类树（只新建缺失，复用同名分类）
+  const paths = new Set([
+    ...toInsert.map((item) => cleanText(item.folderPath) || ''),
+    ...toUpdate.map((u) => u.folderPath || ''),
   ]);
-  const categoryIdByCatelog = new Map();
+  const categoryByPath = new Map();
   if (!dryRun) {
-    for (const catelog of catelogs) {
-      const category = await upsertCategoryByName(env, catelog, 9999);
-      categoryIdByCatelog.set(catelog, category?.id || null);
+    for (const path of paths) {
+      categoryByPath.set(path, await ensureCategoryPath(env, path));
     }
   }
 
@@ -176,7 +210,8 @@ export async function syncBookmarks(env, items, { source = 'extension', request,
     if (dryRun) break;
     await env.NAV_DB.batch(
       batch.map((item) => {
-        const catelog = categoryFromFolderPath(item.folderPath);
+        const path = cleanText(item.folderPath) || '';
+        const resolved = categoryByPath.get(path) || { catelog: categoryFromFolderPath(path), categoryId: null };
         return env.NAV_DB
           .prepare(
             `INSERT INTO sites (name, url, logo, desc, catelog, category_id, space_id, visibility, sort_order, url_key, sync_source, browser_bookmark_id)
@@ -185,8 +220,8 @@ export async function syncBookmarks(env, items, { source = 'extension', request,
           .bind(
             item.title,
             item.url,
-            catelog,
-            categoryIdByCatelog.get(catelog),
+            resolved.catelog,
+            resolved.categoryId,
             item.key,
             SYNC_SOURCE_BROWSER,
             item.id
@@ -199,20 +234,21 @@ export async function syncBookmarks(env, items, { source = 'extension', request,
   for (const batch of chunk(toUpdate, BATCH_SIZE)) {
     if (dryRun) break;
     await env.NAV_DB.batch(
-      batch.map((u) =>
-        env.NAV_DB
+      batch.map((u) => {
+        const resolved = categoryByPath.get(u.folderPath || '') || { catelog: u.catelog, categoryId: null };
+        return env.NAV_DB
           .prepare(
             `UPDATE sites SET name = ?, url = ?, catelog = ?, category_id = ?, url_key = ?, update_time = CURRENT_TIMESTAMP WHERE id = ?`
           )
           .bind(
             u.name,
             u.url,
-            u.catelog,
-            categoryIdByCatelog.get(u.catelog),
+            resolved.catelog,
+            resolved.categoryId,
             u.url_key,
             u.id
-          )
-      )
+          );
+      })
     );
   }
 

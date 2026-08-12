@@ -81,7 +81,9 @@ function createMockEnv() {
     }
     if (s.startsWith('INSERT INTO categories ')) {
       const name = binds[0];
-      if (!categories.has(name)) categories.set(name, { id: nextCategoryId++, name, sort_order: binds[1] });
+      const parentId = binds.length >= 3 ? binds[1] : null;
+      const sortOrder = binds.at(-1);
+      if (!categories.has(name)) categories.set(name, { id: nextCategoryId++, name, parent_id: parentId, sort_order: sortOrder });
       return { meta: { changes: 1 } };
     }
     if (s.startsWith('INSERT INTO category_orders ')) return { meta: { changes: 1 } };
@@ -161,7 +163,7 @@ test('全非法快照拒绝执行（等价空快照）', async () => {
   );
 });
 
-test('新增：顶层书签归未分类，嵌套文件夹拍平建分类', async () => {
+test('新增：顶层书签归未分类，嵌套文件夹建父子分类树', async () => {
   const m = createMockEnv();
   const result = await syncBookmarks(m.env, [
     { id: 'c1', title: '顶栏书签', url: 'https://top.example.com/', folderPath: '' },
@@ -173,8 +175,14 @@ test('新增：顶层书签归未分类，嵌套文件夹拍平建分类', async
   const dev = [...m.sites.values()].find((s) => s.browser_bookmark_id === 'c2');
   assert.equal(top.sync_source, 'browser');
   assert.equal(top.catelog, '未分类');
-  assert.equal(dev.catelog, '工作/开发');
-  assert.ok(m.categories.has('工作/开发'));
+  const work = m.categories.get('工作');
+  const devCat = m.categories.get('开发');
+  assert.ok(work, '应创建父分类「工作」');
+  assert.ok(devCat, '应创建子分类「开发」');
+  assert.equal(work.parent_id, null);
+  assert.equal(devCat.parent_id, work.id, '「开发」的父分类应为「工作」');
+  assert.equal(dev.catelog, '开发', '站点 catelog 为叶子分类名');
+  assert.equal(dev.category_id, devCat.id, '站点 category_id 指向叶子分类');
 });
 
 test('更新：仅 name/catelog 对齐，本地属性保留', async () => {
