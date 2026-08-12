@@ -65,7 +65,7 @@ README.md
 4. 数据库名称建议填写：
 
 ```text
-book
+homepage
 ```
 
 5. 创建完成后，复制数据库 ID。
@@ -75,14 +75,14 @@ book
 ```toml
 [[d1_databases]]
 binding = "NAV_DB"
-database_name = "book"
+database_name = "homepage"
 database_id = "这里填写你的 D1 database_id"
 ```
 
 说明：
 
 - `binding = "NAV_DB"` 是代码里使用的绑定名，建议不要修改。
-- `database_name = "book"` 是 D1 数据库名称，如果你创建时用了其他名称，这里也要对应修改。
+- `database_name = "homepage"` 是 D1 数据库名称，如果你创建时用了其他名称，这里也要对应修改。
 - `database_id` 必须替换成 Cloudflare 创建 D1 后显示的真实 ID。
 
 编辑完成后，在 GitHub 网页端提交到 `main` 分支。
@@ -410,7 +410,7 @@ compatibility_date = "2024-01-01"
 
 [[d1_databases]]
 binding = "NAV_DB"
-database_name = "book"
+database_name = "homepage"
 database_id = "你的 D1 database_id"
 
 [[kv_namespaces]]
@@ -487,7 +487,7 @@ nav
 
 | 类型 | 绑定名 | 绑定资源 |
 |---|---|---|
-| D1 database | `NAV_DB` | `book` |
+| D1 database | `NAV_DB` | `homepage` |
 | KV namespace | `NAV_AUTH` | `NAV_AUTH` |
 
 如果绑定没有自动出现，可以在网页端手动添加：
@@ -502,7 +502,7 @@ nav
 NAV_DB
 ```
 
-4. 选择前面创建的 D1 数据库 `book`。
+4. 选择前面创建的 D1 数据库 `homepage`。
 5. 保存。
 
 ### 添加 KV 绑定

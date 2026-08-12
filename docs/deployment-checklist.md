@@ -26,7 +26,7 @@ compatibility_date = "2024-01-01"
 
 [[d1_databases]]
 binding = "NAV_DB"
-database_name = "book"
+database_name = "homepage"
 database_id = "..."
 
 [[kv_namespaces]]

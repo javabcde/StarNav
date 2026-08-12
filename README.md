@@ -73,7 +73,7 @@
 |---|---|
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API Token（模板「Edit Cloudflare Workers」+ D1 编辑 + KV 编辑权限） |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账号 ID（dashboard 首页右下角） |
-| `D1_DATABASE_ID` | D1 `book` 的 `database_id` |
+| `D1_DATABASE_ID` | D1 `homepage` 的 `database_id` |
 | `KV_NAMESPACE_ID` | KV `NAV_AUTH` 的 namespace `id` |
 
 配置后 push 即自动部署。仓库内 `wrangler.toml` 保持占位符，真实 ID 只存在 Secrets。管理员账号仍需手动写入 KV `NAV_AUTH`（见下方步骤 5）。
@@ -84,9 +84,9 @@
 
 > 若你在**自己的 fork** 中阅读本 README，按钮链接仍指向原仓库 `javabcde/StarNav`（GitHub 不会改写仓库内链接）。想部署你 fork 的版本，把按钮 URL 中的仓库名改为你的 fork 地址，例如 `https://deploy.workers.cloudflare.com/?url=https://github.com/你的用户名/StarNav`。
 
-1. **确认/创建 D1**：若按钮流程未自动创建，在 Cloudflare 控制台新建 D1（`book`），把 `database_id` 写回 fork 仓库的 `wrangler.toml`（占位符 `REPLACE_WITH_YOUR_D1_DATABASE_ID` 必须替换）。
+1. **确认/创建 D1**：若按钮流程未自动创建，在 Cloudflare 控制台新建 D1（`homepage`），把 `database_id` 写回 fork 仓库的 `wrangler.toml`（占位符 `REPLACE_WITH_YOUR_D1_DATABASE_ID` 必须替换）。
 2. **创建 KV 命名空间**：新建 KV（`NAV_AUTH`），把 namespace `id` 写回 `wrangler.toml`（占位符 `REPLACE_WITH_YOUR_KV_NAMESPACE_ID` 必须替换）。
-3. **初始化数据库**：`npx wrangler d1 execute book --file=schema.sql --remote`。
+3. **初始化数据库**：`npx wrangler d1 execute homepage --file=schema.sql --remote`。
 4. **设置管理员账号**：向 KV `NAV_AUTH` 写入 `admin_username` 与 `admin_password`。
 
 ### Wrangler 手动部署
@@ -96,10 +96,10 @@
 npm install
 
 # 2. 创建 D1 数据库，把生成的 database_id 写入 wrangler.toml
-npx wrangler d1 create book
+npx wrangler d1 create homepage
 
 # 3. 初始化数据库
-npx wrangler d1 execute book --file=schema.sql --remote
+npx wrangler d1 execute homepage --file=schema.sql --remote
 
 # 4. 创建 KV 命名空间，把生成的 id 写入 wrangler.toml
 npx wrangler kv namespace create NAV_AUTH
@@ -262,7 +262,7 @@ npm run quality          # 语法检查 + 测试
 npm run dev              # 本地开发
 npx wrangler deploy --dry-run   # 部署预检查
 npx wrangler deploy      # 部署
-npx wrangler d1 execute book --file=schema.sql   # 执行数据库 SQL
+npx wrangler d1 execute homepage --file=schema.sql   # 执行数据库 SQL
 ```
 
 ## 🧪 工程质量与部署检查
