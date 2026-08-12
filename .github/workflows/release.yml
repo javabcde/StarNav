@@ -19,8 +19,10 @@ jobs:
 
       - name: Verify tag matches manifest version
         run: |
+          set -euo pipefail
           VERSION=$(node -p "require('./extensions/browser-bookmark/manifest.json').version")
           TAG_VERSION="${GITHUB_REF_NAME#v}"
+          echo "manifest=$VERSION tag=${GITHUB_REF_NAME}"
           if [ "$TAG_VERSION" != "$VERSION" ]; then
             echo "::error::Tag ${GITHUB_REF_NAME} does not match manifest version ${VERSION}. Bump manifest.json or use tag v${VERSION}."
             exit 1
@@ -28,19 +30,24 @@ jobs:
 
       - name: Package extension zip
         run: |
+          set -euo pipefail
+          command -v zip >/dev/null || { echo "::error::zip not found on runner"; exit 1; }
           VERSION=$(node -p "require('./extensions/browser-bookmark/manifest.json').version")
           mkdir -p dist
           cd extensions/browser-bookmark
           zip -r "../../dist/star-nav-extension-v${VERSION}.zip" . -x '*.DS_Store'
           cd ../..
-          echo "ASSET=dist/star-nav-extension-v${VERSION}.zip" >> "$GITHUB_ENV"
+          ls -la dist/
 
       - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          VERSION=$(node -p "require('./extensions/browser-bookmark/manifest.json').version")
-          gh release create "$GITHUB_REF_NAME" "$ASSET" \
-            --title "StarNav 浏览器插件 v${VERSION}" \
-            --notes "MV3 插件 zip：下载后解压，打开 chrome://extensions → 开启开发者模式 → 「加载已解压的扩展程序」选择解压目录。
-配置：插件设置页填写 StarNav 地址与 Bearer Token（后台 Token 管理创建，需 write scope）。"
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: StarNav 浏览器插件 v${{ github.ref_name }}
+          files: dist/star-nav-extension-v*.zip
+          body: |
+            MV3 插件 zip：下载后解压，打开 chrome://extensions → 开启开发者模式 → 「加载已解压的扩展程序」选择解压目录。
+
+            配置：插件设置页填写 StarNav 地址与 Bearer Token（后台 Token 管理创建，需 write scope）。
+
+            能力：收藏当前页（查重/自动抓取/AI 推荐）、站内书签浏览（搜索/分类/排序/加载更多）、一键同步浏览器收藏（以浏览器为事实源，手动书签不覆盖）。
