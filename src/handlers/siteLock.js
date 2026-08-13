@@ -1,4 +1,4 @@
-import { isAdminAuthenticated, parseCookies, validateApiToken } from '../lib/auth.js';
+import { isAdminAuthenticated, validateApiToken } from '../lib/auth.js';
 import { resolveI18n } from '../lib/i18n.js';
 import { errorResponse, escapeHTML, htmlResponse } from '../lib/utils.js';
 import { renderSiteLockPage } from '../pages/home/siteLock.js';
@@ -10,24 +10,8 @@ import {
   hasSiteLockAccess,
   isSiteLockEnabled,
   registerSiteLockFailure,
-  SITE_LOCK_COOKIE_NAME,
   verifySiteLockPassword,
 } from '../services/siteLockService.js';
-
-/** [DEBUG-lock] 临时埋点：每次锁页渲染记录 nonce 与请求是否携带解锁 Cookie/探针 Cookie，用于排查移动浏览器解锁失败。 */
-function buildLockDebug(request) {
-  const cookies = parseCookies(request.headers.get('Cookie') || '');
-  return {
-    nonce: Math.random().toString(36).slice(2, 10),
-    cookie: cookies[SITE_LOCK_COOKIE_NAME] ? 'present' : 'absent',
-    probeA: cookies.nav_site_lock_probe ? 'present' : 'absent',
-    probeB: cookies.nav_site_lock_probe_b ? 'present' : 'absent',
-    probeC: cookies.nav_site_lock_probe_c ? 'present' : 'absent',
-    probeD: cookies.nav_site_lock_probe_d ? 'present' : 'absent',
-    probeE: cookies.nav_site_lock_probe_e ? 'present' : 'absent',
-    t: new Date().toISOString().slice(11, 19),
-  };
-}
 
 /**
  * 整站锁白名单：这些路由在锁启用时仍可匿名访问。
@@ -73,15 +57,7 @@ export async function handleSiteLockRequest(request, env) {
   // 页面：锁页位于 /，携带同源回跳地址；访问 / 直接渲染锁页（避免 302 环）。
   if (path === '/') {
     const i18n = resolveI18n(request);
-    const debug = buildLockDebug(request);
-    const response = renderSiteLockPage({ next: url.searchParams.get('next') || '', i18n, debug });
-    // [DEBUG-lock] 探针 Cookie：A 普通；B 全属性；C 仅 HttpOnly；D 仅 Secure；E 仅 SameSite=Strict
-    response.headers.append('Set-Cookie', 'nav_site_lock_probe=1; Path=/; Max-Age=600; SameSite=Lax');
-    response.headers.append('Set-Cookie', 'nav_site_lock_probe_b=1; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Strict');
-    response.headers.append('Set-Cookie', 'nav_site_lock_probe_c=1; Path=/; Max-Age=600; HttpOnly; SameSite=Lax');
-    response.headers.append('Set-Cookie', 'nav_site_lock_probe_d=1; Path=/; Max-Age=600; Secure; SameSite=Lax');
-    response.headers.append('Set-Cookie', 'nav_site_lock_probe_e=1; Path=/; Max-Age=600; SameSite=Strict');
-    return response;
+    return renderSiteLockPage({ next: url.searchParams.get('next') || '', i18n });
   }
   const next = `${path}${url.search}`;
   return new Response(null, {
@@ -99,7 +75,7 @@ async function handleSiteLockUnlock(request, env, url) {
 
   const throttle = await getSiteLockThrottle(env, request);
   if (throttle.locked) {
-    return renderSiteLockPage({ next: formNext, error: i18n.t('siteLockLocked'), i18n, debug: buildLockDebug(request) });
+    return renderSiteLockPage({ next: formNext, error: i18n.t('siteLockLocked'), i18n });
   }
 
   const formData = await request.formData();
@@ -122,7 +98,7 @@ async function handleSiteLockUnlock(request, env, url) {
   }
 
   await registerSiteLockFailure(env, throttle.key, throttle.count);
-  return renderSiteLockPage({ next, error: i18n.t('siteLockError'), i18n, debug: buildLockDebug(request) });
+  return renderSiteLockPage({ next, error: i18n.t('siteLockError'), i18n });
 }
 
 /**

@@ -213,7 +213,8 @@ export function buildSiteLockAccessCookie(token, options = {}) {
     'Path=/',
     'HttpOnly',
     'SameSite=Strict',
-    'Secure',
+    // 不设 Secure：夸克/VIA 等移动浏览器会丢弃带 Secure 的 Cookie（探针实测）。
+    // 站点为 https-only（CF 自定义域名），去掉无实际安全损失。
   ];
   if (duration !== 'session') {
     parts.push(`Max-Age=${maxAge}`);

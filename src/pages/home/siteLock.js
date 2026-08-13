@@ -12,13 +12,10 @@ import { escapeHTML, htmlResponse } from '../../lib/utils.js';
  * @param {string} [options.error] 错误提示文案（已本地化）。
  * @param {object} [options.i18n] resolveI18n(request) 的返回值。
  */
-export function renderSiteLockPage({ next = '', error = '', i18n, debug } = {}) {
+export function renderSiteLockPage({ next = '', error = '', i18n } = {}) {
   const fallbackI18n = i18n || { lang: 'zh-CN', dir: 'ltr', th: (key) => key };
   const { lang, dir, th } = fallbackI18n;
   const safeNext = String(next || '').startsWith('/') && !String(next).startsWith('//') ? String(next) : '/';
-  const debugLine = debug
-    ? `<div style="margin-top:12px;font-size:10px;color:#94a3b8;text-align:center">[DEBUG-lock] nonce=${escapeHTML(debug.nonce)} c=${escapeHTML(debug.cookie)} A=${escapeHTML(debug.probeA)} B=${escapeHTML(debug.probeB)} C=${escapeHTML(debug.probeC)} D=${escapeHTML(debug.probeD)} E=${escapeHTML(debug.probeE)} t=${escapeHTML(debug.t)}</div>`
-    : '';
 
   const response = htmlResponse(`<!DOCTYPE html>
 <html lang="${escapeHTML(lang)}" dir="${escapeHTML(dir)}">
@@ -36,7 +33,6 @@ export function renderSiteLockPage({ next = '', error = '', i18n, debug } = {}) 
       <p class="mt-3 text-sm text-slate-600">${th('siteLockDesc')}</p>
     </div>
     ${error ? `<div class="mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">${escapeHTML(error)}</div>` : ''}
-    ${debugLine}
     <form method="post" action="/?next=${encodeURIComponent(safeNext)}" class="mt-6 space-y-4">
       <input type="hidden" name="next" value="${escapeHTML(safeNext)}">
       <input name="password" type="password" required autofocus autocomplete="current-password" placeholder="${th('siteLockEnter')}" class="w-full rounded-lg border border-slate-200 px-4 py-3 outline-none focus:border-slate-400">

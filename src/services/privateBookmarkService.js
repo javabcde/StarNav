@@ -137,7 +137,7 @@ export function buildPrivateBookmarkAccessCookie(token, options = {}) {
     'Path=/',
     'HttpOnly',
     'SameSite=Strict',
-    'Secure',
+    // 不设 Secure：夸克/VIA 等移动浏览器会丢弃带 Secure 的 Cookie；站点 https-only，无实际损失
   ];
   if (duration === 'session') {
     // 会话级 cookie：不设置 Max-Age，浏览器关闭后失效

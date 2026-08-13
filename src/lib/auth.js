@@ -70,7 +70,7 @@ export function buildSessionCookie(token, options = {}) {
     `Max-Age=${maxAge}`,
     'HttpOnly',
     'SameSite=Strict',
-    'Secure',
+    // 不设 Secure：夸克/VIA 等移动浏览器会丢弃带 Secure 的 Cookie；站点 https-only，无实际损失
   ].join('; ');
 }
 

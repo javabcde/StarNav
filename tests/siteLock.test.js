@@ -260,3 +260,10 @@ test('锁页 POST：外部回跳地址被拒绝，回首页', async () => {
   assert.equal(response.status, 200);
   assert.ok((await response.text()).includes('location.replace("/")'), '外部地址应回首页');
 });
+
+test('解锁 Cookie 兼容移动浏览器：保留 HttpOnly/SameSite=Strict，不带 Secure', () => {
+  const cookie = buildSiteLockAccessCookie('tok', { maxAge: 3600, duration: '1h' });
+  assert.ok(cookie.includes('HttpOnly'), '应保留 HttpOnly');
+  assert.ok(cookie.includes('SameSite=Strict'), '应保留 SameSite=Strict');
+  assert.ok(!cookie.includes('Secure'), 'Secure 会被夸克/VIA 丢弃导致解锁失败（探针实测，站点 https-only 无实际损失）');
+});
