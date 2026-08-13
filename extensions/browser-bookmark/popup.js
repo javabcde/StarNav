@@ -230,7 +230,7 @@ async function initPopup() {
   }
 
   setStatus('插件已就绪。');
-  autoCheckDuplicate().catch(() => {});
+  // 查重只在进入收藏视图时执行（见 switchTab），打开 popup 默认停在浏览视图，不打扰
 }
 
 async function autoFetchMeta() {
@@ -295,6 +295,9 @@ async function suggestTags() {
     setStatus('没有获得标签推荐。', 'warning');
   }
 }
+
+// 同一 URL 的查重只执行一次（避免收藏/浏览 tab 间来回切换重复请求）
+let lastCheckedDuplicateUrl = '';
 
 async function autoCheckDuplicate() {
   const target = els.url.value.trim();
@@ -413,6 +416,7 @@ els.syncBtn.addEventListener('click', async () => {
 });
 
 els.url.addEventListener('change', () => {
+  lastCheckedDuplicateUrl = els.url.value.trim();
   showDuplicate(null);
   autoCheckDuplicate().catch(() => {});
 });
@@ -490,6 +494,17 @@ function switchTab(activeBtn) {
     const isActive = btn === activeBtn;
     btn.classList.toggle('active', isActive);
     view.hidden = !isActive;
+  }
+  if (activeBtn === els.tabCollect) {
+    // 进入收藏视图才执行查重；同一 URL 不重复请求（URL 变化由 change 事件负责）
+    const target = els.url.value.trim();
+    if (target && target !== lastCheckedDuplicateUrl) {
+      lastCheckedDuplicateUrl = target;
+      autoCheckDuplicate().catch(() => {});
+    }
+  } else {
+    // 离开收藏视图清掉查重/收藏状态残留
+    setStatus('');
   }
 }
 
