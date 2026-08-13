@@ -1,5 +1,5 @@
 import { isAdminAuthenticated } from '../lib/auth.js';
-import { escapeHTML, htmlResponse, isSubmissionEnabled, sanitizeImageUrl, sanitizeUrl, textResponse } from '../lib/utils.js';
+import { escapeHTML, htmlResponse, isSubmissionEnabled, sanitizeImageUrl, sanitizeUrl } from '../lib/utils.js';
 import { resolveI18n } from '../lib/i18n.js';
 import { canListSite, getAllSites } from '../services/siteService.js';
 import { getCategoryTree } from '../services/categoryService.js';
@@ -159,7 +159,7 @@ export async function renderHomePage(request, env, ctx) {
     const pageCards = privateCatalogLocked
       ? ''
       : currentSites.slice(start, start + GRID_PAGE_SIZE).map((site) => renderSiteCard(site, canDragSort, adminAuthed, i18n)).join('');
-    const response = textResponse(pageCards, 'text/html; charset=utf-8', { 'Cache-Control': 'no-store' });
+    const response = htmlResponse(pageCards, 200, { 'Cache-Control': 'no-store' });
     response.headers.set('X-Sites-Total', String(currentSites.length));
     return response;
   }
@@ -169,7 +169,7 @@ export async function renderHomePage(request, env, ctx) {
       : requestedLayout === 'grouped'
         ? renderGroupedSites(currentSites, adminAuthed, i18n)
         : renderDashboardSites(currentSites, adminAuthed, i18n);
-    return textResponse(fragment, 'text/html; charset=utf-8', { 'Cache-Control': 'no-store' });
+    return htmlResponse(fragment, 200, { 'Cache-Control': 'no-store' });
   }
   const gridContent = privateCatalogLocked
     ? renderPrivateBookmarkUnlockBox(catalog, i18n)
