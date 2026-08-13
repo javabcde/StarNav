@@ -1,4 +1,4 @@
-import { isAdminAuthenticated, validateApiToken } from '../lib/auth.js';
+import { isAdminAuthenticated, parseCookies, validateApiToken } from '../lib/auth.js';
 import { resolveI18n } from '../lib/i18n.js';
 import { errorResponse, escapeHTML, htmlResponse } from '../lib/utils.js';
 import { renderSiteLockPage } from '../pages/home/siteLock.js';
@@ -10,8 +10,19 @@ import {
   hasSiteLockAccess,
   isSiteLockEnabled,
   registerSiteLockFailure,
+  SITE_LOCK_COOKIE_NAME,
   verifySiteLockPassword,
 } from '../services/siteLockService.js';
+
+/** [DEBUG-lock] 临时埋点：每次锁页渲染记录 nonce 与请求是否携带解锁 Cookie，用于排查移动浏览器解锁失败。 */
+function buildLockDebug(request) {
+  const cookies = parseCookies(request.headers.get('Cookie') || '');
+  return {
+    nonce: Math.random().toString(36).slice(2, 10),
+    cookie: cookies[SITE_LOCK_COOKIE_NAME] ? 'present' : 'absent',
+    t: new Date().toISOString().slice(11, 19),
+  };
+}
 
 /**
  * 整站锁白名单：这些路由在锁启用时仍可匿名访问。
@@ -57,7 +68,7 @@ export async function handleSiteLockRequest(request, env) {
   // 页面：锁页位于 /，携带同源回跳地址；访问 / 直接渲染锁页（避免 302 环）。
   if (path === '/') {
     const i18n = resolveI18n(request);
-    return renderSiteLockPage({ next: url.searchParams.get('next') || '', i18n });
+    return renderSiteLockPage({ next: url.searchParams.get('next') || '', i18n, debug: buildLockDebug(request) });
   }
   const next = `${path}${url.search}`;
   return new Response(null, {
@@ -75,7 +86,7 @@ async function handleSiteLockUnlock(request, env, url) {
 
   const throttle = await getSiteLockThrottle(env, request);
   if (throttle.locked) {
-    return renderSiteLockPage({ next: formNext, error: i18n.t('siteLockLocked'), i18n });
+    return renderSiteLockPage({ next: formNext, error: i18n.t('siteLockLocked'), i18n, debug: buildLockDebug(request) });
   }
 
   const formData = await request.formData();
@@ -98,7 +109,7 @@ async function handleSiteLockUnlock(request, env, url) {
   }
 
   await registerSiteLockFailure(env, throttle.key, throttle.count);
-  return renderSiteLockPage({ next, error: i18n.t('siteLockError'), i18n });
+  return renderSiteLockPage({ next, error: i18n.t('siteLockError'), i18n, debug: buildLockDebug(request) });
 }
 
 /**
