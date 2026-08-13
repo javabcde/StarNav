@@ -22,6 +22,9 @@ function buildLockDebug(request) {
     cookie: cookies[SITE_LOCK_COOKIE_NAME] ? 'present' : 'absent',
     probeA: cookies.nav_site_lock_probe ? 'present' : 'absent',
     probeB: cookies.nav_site_lock_probe_b ? 'present' : 'absent',
+    probeC: cookies.nav_site_lock_probe_c ? 'present' : 'absent',
+    probeD: cookies.nav_site_lock_probe_d ? 'present' : 'absent',
+    probeE: cookies.nav_site_lock_probe_e ? 'present' : 'absent',
     t: new Date().toISOString().slice(11, 19),
   };
 }
@@ -72,9 +75,12 @@ export async function handleSiteLockRequest(request, env) {
     const i18n = resolveI18n(request);
     const debug = buildLockDebug(request);
     const response = renderSiteLockPage({ next: url.searchParams.get('next') || '', i18n, debug });
-    // [DEBUG-lock] 探针 Cookie：probeA 普通属性；probeB 完全模仿解锁 Cookie 属性（HttpOnly/Secure/Strict）
+    // [DEBUG-lock] 探针 Cookie：A 普通；B 全属性；C 仅 HttpOnly；D 仅 Secure；E 仅 SameSite=Strict
     response.headers.append('Set-Cookie', 'nav_site_lock_probe=1; Path=/; Max-Age=600; SameSite=Lax');
     response.headers.append('Set-Cookie', 'nav_site_lock_probe_b=1; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Strict');
+    response.headers.append('Set-Cookie', 'nav_site_lock_probe_c=1; Path=/; Max-Age=600; HttpOnly; SameSite=Lax');
+    response.headers.append('Set-Cookie', 'nav_site_lock_probe_d=1; Path=/; Max-Age=600; Secure; SameSite=Lax');
+    response.headers.append('Set-Cookie', 'nav_site_lock_probe_e=1; Path=/; Max-Age=600; SameSite=Strict');
     return response;
   }
   const next = `${path}${url.search}`;
