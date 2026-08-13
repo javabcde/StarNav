@@ -12,6 +12,12 @@ const SCHEMA_MIGRATION_KV_KEY = 'schema_migration:version';
 let migrationState = 'pending'; // pending | running | done
 let migrationPromise = null;
 
+// 仅供测试：重置模块级迁移状态，避免 node --test 用例间互相污染。
+export function resetMigrationStateForTest() {
+  migrationState = 'pending';
+  migrationPromise = null;
+}
+
 export async function ensureSchema(env) {
   if (migrationState === 'done') return;
   if (migrationState === 'running') return migrationPromise;

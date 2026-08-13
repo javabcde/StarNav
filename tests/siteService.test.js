@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   canAccessSite,
   canListSite,
+  listSitesByIds,
   normalizeDuplicateUrlKey,
   normalizeImportPayload,
   previewImportSites,
@@ -48,6 +49,17 @@ function createMockEnv({ sites = [], tagRows = [], existingCategories = [], exis
         }
 
         if (sql.includes('FROM sites s')) {
+          // listSitesByIds 的按 ID 查询：模拟 SQL 层的可见性 WHERE 过滤。
+          if (sql.includes('WHERE s.id IN')) {
+            const ids = new Set(binds.filter((b) => typeof b === 'number').map(Number));
+            let rows = sites.filter((s) => ids.has(Number(s.id)));
+            if (sql.includes("COALESCE(s.visibility, 'public') IN ('public', 'private')")) {
+              rows = rows.filter((s) => ['public', 'private'].includes(s.visibility));
+            } else if (sql.includes("COALESCE(s.visibility, 'public') = 'public'")) {
+              rows = rows.filter((s) => s.visibility === 'public');
+            }
+            return { results: rows };
+          }
           return { results: sites };
         }
 
@@ -215,4 +227,35 @@ test('searchSites supports advanced tag filter syntax', async () => {
   const results = await searchSites(env, { keyword: 'tag:图床', limit: 5 });
 
   assert.deepEqual(results.map((site) => site.name), ['图床工具']);
+});
+test('listSitesByIds 按可见性过滤：匿名只见 public、私密解锁见 public+private、admin 全见', async () => {
+  const sites = [
+    { id: 1, name: '公开站', url: 'https://a.test', catelog: '工具', visibility: 'public' },
+    { id: 2, name: '私密站', url: 'https://b.test', catelog: '私人书签', visibility: 'private' },
+    { id: 3, name: '内部站', url: 'https://c.test', catelog: '工具', visibility: 'admin_only' },
+  ];
+  const env = createMockEnv({ sites });
+
+  const anon = await listSitesByIds(env, [1, 2, 3, 99]);
+  assert.deepEqual(anon.map((s) => s.id), [1], '匿名只能拿到 public');
+
+  const unlocked = await listSitesByIds(env, [1, 2, 3], { includePrivate: true, privateUnlocked: true });
+  assert.deepEqual(unlocked.map((s) => s.id).sort(), [1, 2], '私密解锁可拿 public + private');
+
+  const admin = await listSitesByIds(env, [1, 2, 3], { adminAuthed: true });
+  assert.deepEqual(admin.map((s) => s.id).sort(), [1, 2, 3], 'admin 全可见');
+});
+
+test('listSitesByIds 清洗 id：NaN/负数/空字符串/重复被剔除，空数组直接返回', async () => {
+  const sites = [
+    { id: 1, name: '公开站', url: 'https://a.test', catelog: '工具', visibility: 'public' },
+    { id: 2, name: '另一站', url: 'https://b.test', catelog: '工具', visibility: 'public' },
+  ];
+  const env = createMockEnv({ sites });
+
+  const cleaned = await listSitesByIds(env, [1, 'abc', -5, 0, 1, '']);
+  assert.deepEqual(cleaned.map((s) => s.id), [1], 'NaN/负数/0/重复应被清洗，仅剩去重后的有效 id');
+
+  assert.deepEqual(await listSitesByIds(env, []), []);
+  assert.deepEqual(await listSitesByIds(env, ['x', -1]), []);
 });

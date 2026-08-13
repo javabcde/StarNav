@@ -267,3 +267,85 @@ test('解锁 Cookie 兼容移动浏览器：保留 HttpOnly/SameSite=Strict，�
   assert.ok(cookie.includes('SameSite=Strict'), '应保留 SameSite=Strict');
   assert.ok(!cookie.includes('Secure'), 'Secure 会被夸克/VIA 丢弃导致解锁失败（探针实测，站点 https-only 无实际损失）');
 });
+
+test('锁状态 KV 缓存：命中短路 D1、miss 回填、写路径即时刷新', async () => {
+  const { env, kv } = createMockEnv();
+  const origPrepare = env.NAV_DB.prepare;
+  let d1Reads = 0;
+  env.NAV_DB.prepare = (sql) => {
+    if (sql.includes('SELECT value FROM settings')) d1Reads += 1;
+    return origPrepare(sql);
+  };
+
+  // miss → 回源 D1 + 回填 '0'
+  assert.equal(await isSiteLockEnabled(env), false);
+  assert.equal(kv.get('site_lock:enabled').value, '0');
+  assert.equal(d1Reads, 1, '首次 miss 必须读 D1');
+
+  // 命中 '0' → 0 次 D1 读
+  assert.equal(await isSiteLockEnabled(env), false);
+  assert.equal(d1Reads, 1, '命中 KV 缓存不应再读 D1');
+
+  // 写路径即时刷新：设密码 → KV '1'，后续命中
+  await updateSiteLockPassword(env, 's3cret');
+  assert.equal(await isSiteLockEnabled(env), true);
+  assert.equal(d1Reads, 1);
+  assert.equal(kv.get('site_lock:enabled').value, '1');
+
+  // 清除密码 → KV '0'
+  await clearSiteLockPassword(env);
+  assert.equal(await isSiteLockEnabled(env), false);
+  assert.equal(d1Reads, 1);
+  assert.equal(kv.get('site_lock:enabled').value, '0');
+
+  // 缓存失效（模拟 TTL 过期）→ 回源 + 回填
+  kv.delete('site_lock:enabled');
+  assert.equal(await isSiteLockEnabled(env), false);
+  assert.equal(d1Reads, 2, '缓存过期后应回源 D1');
+});
+
+test('解锁 token 滑动续期降频：剩余 > TTL/2 不写 KV，不足才续', async () => {
+  const { env, kv } = createMockEnv();
+  const { token } = await createSiteLockAccess(env, { duration: '12h' });
+  const origPut = env.NAV_AUTH.put;
+  let putCalls = 0;
+  env.NAV_AUTH.put = async (...args) => { putCalls += 1; return origPut(...args); };
+
+  // 刚创建：剩余接近完整 TTL → 不续期
+  assert.equal(await hasSiteLockAccess(req('https://x/', { cookie: `nav_site_lock=${token}` }), env), true);
+  assert.equal(putCalls, 0, '新鲜 token 不应触发续期写');
+
+  // 7 小时前创建（剩余 5h < 12h/2）→ 续期
+  const oldToken = 'old-token';
+  await env.NAV_AUTH.put(
+    'site-lock:access:old-token',
+    JSON.stringify({ createdAt: Date.now() - 7 * 3600 * 1000, duration: '12h', ttl: 12 * 3600 }),
+    { expirationTtl: 12 * 3600 }
+  );
+  putCalls = 0;
+  assert.equal(await hasSiteLockAccess(req('https://x/', { cookie: 'nav_site_lock=old-token' }), env), true);
+  assert.equal(putCalls, 1, '剩余不足一半时应续期一次');
+});
+
+test('私人书签 token 滑动续期降频：剩余 > TTL/2 不写 KV，不足才续', async () => {
+  const { createPrivateBookmarkAccess, hasPrivateBookmarkAccess } = await import('../src/services/privateBookmarkService.js');
+  const { env, kv } = createMockEnv();
+  const { token } = await createPrivateBookmarkAccess(env, { duration: '12h' });
+  const origPut = env.NAV_AUTH.put;
+  let putCalls = 0;
+  env.NAV_AUTH.put = async (...args) => { putCalls += 1; return origPut(...args); };
+
+  const PRIVATE_COOKIE = 'nav_private_bookmarks_access';
+  assert.equal(await hasPrivateBookmarkAccess(req('https://x/', { cookie: `${PRIVATE_COOKIE}=${token}` }), env), true);
+  assert.equal(putCalls, 0, '新鲜 token 不应触发续期写');
+
+  const oldToken = 'old-private';
+  await env.NAV_AUTH.put(
+    'private-bookmarks:access:old-private',
+    JSON.stringify({ createdAt: Date.now() - 7 * 3600 * 1000, duration: '12h', ttl: 12 * 3600 }),
+    { expirationTtl: 12 * 3600 }
+  );
+  putCalls = 0;
+  assert.equal(await hasPrivateBookmarkAccess(req('https://x/', { cookie: `${PRIVATE_COOKIE}=${oldToken}` }), env), true);
+  assert.equal(putCalls, 1, '剩余不足一半时应续期一次');
+});
