@@ -603,7 +603,9 @@ document.addEventListener('DOMContentLoaded',function(){
     if (!panel || panel.dataset.loaded === '1') return;
     panel.dataset.loaded = '1';
     panel.innerHTML = '<div class="py-10 text-center text-primary-600">正在加载…</div>';
-    fetch('/?layout=' + encodeURIComponent(layout) + (window.location.search || ''), { headers: { 'X-Requested-With': 'fetch' } })
+    const params = new URLSearchParams(window.location.search);
+    params.set('layout', layout);
+    fetch('/?' + params.toString(), { headers: { 'X-Requested-With': 'fetch' } })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
       .then(function (html) { panel.innerHTML = html; })
       .catch(function () { panel.dataset.loaded = ''; panel.innerHTML = '<div class="py-10 text-center text-red-600">加载失败，请重试</div>'; });
