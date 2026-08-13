@@ -195,6 +195,7 @@ async function loadConfig() {
     'defaultCategory',
     'defaultTags',
     'siteIcon',
+    'browseCacheMinutes',
   ]);
   const localData = await chrome.storage.local.get([
     'categories',
@@ -211,8 +212,8 @@ async function initPopup() {
   await loadConfig();
   restoreCachedExtensionIcon().catch(() => {});
 
-  // 站内浏览：打开即并行拉取首页列表与分类，互不阻塞（错误各自在浏览视图内展示）
-  Promise.all([loadBrowse(true), loadCategories()]).catch(() => {});
+  // 站内浏览：缓存命中直接显示本地数据，未命中/过期才拉取（错误在浏览视图内展示）
+  loadBrowseView().catch(() => {});
 
   const tab = await getActiveTab();
   if (tab) {
@@ -497,6 +498,9 @@ els.tabCollect.addEventListener('click', () => switchTab(els.tabCollect));
 els.tabSync.addEventListener('click', () => switchTab(els.tabSync));
 
 // ===== 站内书签浏览 =====
+const BROWSE_CACHE_KEY = 'browse:cache:v1';
+const BROWSE_CACHE_DEFAULT_MINUTES = 5;
+
 const browseState = {
   page: 1,
   pageSize: 30,
@@ -507,6 +511,39 @@ const browseState = {
   items: [],
   loading: false,
 };
+
+// 缓存签名：不含 page（缓存代表第一页视图，page 单独恢复）
+function browseSignature() {
+  return [browseState.keyword, browseState.catelog, browseState.sort].join('|');
+}
+
+function effectiveCacheMinutes() {
+  const minutes = Number(config.browseCacheMinutes);
+  return Number.isFinite(minutes) && minutes >= 0 ? minutes : BROWSE_CACHE_DEFAULT_MINUTES;
+}
+
+async function readBrowseCache() {
+  try {
+    const data = await chrome.storage.local.get(BROWSE_CACHE_KEY);
+    return data[BROWSE_CACHE_KEY] || null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeBrowseCache(payload) {
+  try {
+    await chrome.storage.local.set({ [BROWSE_CACHE_KEY]: payload });
+  } catch {
+    // 写失败不影响浏览
+  }
+}
+
+function isBrowseCacheFresh(cache) {
+  const minutes = effectiveCacheMinutes();
+  if (!cache || minutes <= 0) return false;
+  return Date.now() - (cache.fetchedAt || 0) < minutes * 60 * 1000;
+}
 
 const BROWSE_AVATAR_COLORS = ['#2563eb', '#7c3aed', '#db2777', '#ea580c', '#16a34a', '#0891b2', '#4f46e5', '#ca8a04'];
 
@@ -606,12 +643,29 @@ function updateBrowseMore() {
   els.browseMore.textContent = '加载更多';
 }
 
-async function loadBrowse(reset = false) {
+async function loadBrowse(reset = false, { skipCache = false } = {}) {
   if (browseState.loading) return;
   browseState.loading = true;
   els.browseMore.disabled = true;
 
   if (reset) {
+    if (!skipCache) {
+      const cache = await readBrowseCache();
+      if (cache && cache.signature === browseSignature() && isBrowseCacheFresh(cache)) {
+        browseState.total = cache.total;
+        browseState.items = cache.items;
+        browseState.page = cache.page || 2;
+        if (Array.isArray(cache.categories)) {
+          browseCategories = cache.categories;
+          renderCategories();
+        }
+        renderBrowseList();
+        browseState.loading = false;
+        updateBrowseMore();
+        els.browseMore.disabled = false;
+        return;
+      }
+    }
     browseState.page = 1;
     browseState.items = [];
     browseState.total = 0;
@@ -636,6 +690,10 @@ async function loadBrowse(reset = false) {
     browseState.items = reset ? list : browseState.items.concat(list);
     browseState.page += 1;
     renderBrowseList();
+    if (reset) {
+      // 拉取到新数据即替换本地缓存（含分类），下次打开命中缓存直接显示
+      await writeBrowseCache({ signature: browseSignature(), fetchedAt: Date.now(), items: list, total, page: browseState.page, categories: browseCategories });
+    }
   } catch (error) {
     if (reset) els.browseList.innerHTML = '';
     if (error.status === 401) {
@@ -651,6 +709,23 @@ async function loadBrowse(reset = false) {
 }
 
 let browseCategories = [];
+
+// 打开浏览视图：缓存命中直接渲染（含分类），否则先拉分类再拉列表（保证缓存带分类）
+async function loadBrowseView() {
+  const cache = await readBrowseCache();
+  if (cache && cache.signature === browseSignature() && isBrowseCacheFresh(cache)) {
+    browseState.total = cache.total;
+    browseState.items = cache.items;
+    browseState.page = cache.page || 2;
+    if (Array.isArray(cache.categories)) browseCategories = cache.categories;
+    renderBrowseList();
+    renderCategories();
+    updateBrowseMore();
+    return;
+  }
+  await loadCategories();
+  await loadBrowse(true);
+}
 
 async function loadCategories() {
   try {
@@ -699,7 +774,11 @@ els.browseSort.addEventListener('change', () => {
   loadBrowse(true);
 });
 
-els.browseRefresh.addEventListener('click', () => loadBrowse(true));
+els.browseRefresh.addEventListener('click', async () => {
+  // 立即拉取：跳过缓存，先刷分类再刷列表，成功后替换本地缓存
+  await loadCategories();
+  await loadBrowse(true, { skipCache: true });
+});
 els.browseMore.addEventListener('click', () => loadBrowse(false));
 
 initPopup();

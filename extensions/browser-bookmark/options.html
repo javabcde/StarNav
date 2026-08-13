@@ -179,6 +179,16 @@
       </div>
     </div>
 
+    <label for="browseCacheMinutes">浏览缓存刷新间隔</label>
+    <select id="browseCacheMinutes">
+      <option value="0">不缓存（每次打开都拉取）</option>
+      <option value="1">1 分钟</option>
+      <option value="5" selected>5 分钟</option>
+      <option value="15">15 分钟</option>
+      <option value="60">1 小时</option>
+    </select>
+    <p class="tiny">打开插件时若缓存未过期直接显示本地数据；点「刷新」立即拉取并替换缓存。</p>
+
     <datalist id="categoryList"></datalist>
     <datalist id="tagList"></datalist>
 

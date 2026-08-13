@@ -3,6 +3,7 @@ const els = {
   token: document.getElementById('token'),
   defaultCategory: document.getElementById('defaultCategory'),
   defaultTags: document.getElementById('defaultTags'),
+  browseCacheMinutes: document.getElementById('browseCacheMinutes'),
   categoryList: document.getElementById('categoryList'),
   tagList: document.getElementById('tagList'),
   saveBtn: document.getElementById('saveBtn'),
@@ -119,6 +120,7 @@ async function loadOptions() {
     'token',
     'defaultCategory',
     'defaultTags',
+    'browseCacheMinutes',
   ]);
   const localData = await chrome.storage.local.get([
     'categories',
@@ -129,6 +131,7 @@ async function loadOptions() {
   els.token.value = syncData.token || '';
   els.defaultCategory.value = syncData.defaultCategory || '';
   els.defaultTags.value = syncData.defaultTags || '';
+  if (els.browseCacheMinutes) els.browseCacheMinutes.value = String(syncData.browseCacheMinutes != null ? syncData.browseCacheMinutes : 5);
 
   renderDatalist(els.categoryList, localData.categories || [], (item) => item.name || item.catelog || item);
   renderDatalist(els.tagList, localData.tags || [], (item) => item.name || item.tag || item);
@@ -147,7 +150,13 @@ async function saveOptions({ silent = false } = {}) {
     throw new Error('请填写 Bearer Token');
   }
 
-  await chrome.storage.sync.set({ baseUrl, token, defaultCategory, defaultTags });
+  await chrome.storage.sync.set({
+    baseUrl,
+    token,
+    defaultCategory,
+    defaultTags,
+    browseCacheMinutes: Number(els.browseCacheMinutes?.value != null ? els.browseCacheMinutes.value : 5),
+  });
   await syncExtensionIcon({ silent: true });
   if (!silent) setStatus('设置已保存，插件图标已尝试同步。', 'success');
 }
