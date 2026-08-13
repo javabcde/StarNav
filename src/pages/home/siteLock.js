@@ -17,7 +17,7 @@ export function renderSiteLockPage({ next = '', error = '', i18n, debug } = {}) 
   const { lang, dir, th } = fallbackI18n;
   const safeNext = String(next || '').startsWith('/') && !String(next).startsWith('//') ? String(next) : '/';
   const debugLine = debug
-    ? `<div style="margin-top:12px;font-size:10px;color:#94a3b8;text-align:center">[DEBUG-lock] nonce=${escapeHTML(debug.nonce)} cookie=${escapeHTML(debug.cookie)} t=${escapeHTML(debug.t)}</div>`
+    ? `<div style="margin-top:12px;font-size:10px;color:#94a3b8;text-align:center">[DEBUG-lock] nonce=${escapeHTML(debug.nonce)} cookie=${escapeHTML(debug.cookie)} probe=${escapeHTML(debug.probe)} t=${escapeHTML(debug.t)}</div>`
     : '';
 
   const response = htmlResponse(`<!DOCTYPE html>

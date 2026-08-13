@@ -14,12 +14,13 @@ import {
   verifySiteLockPassword,
 } from '../services/siteLockService.js';
 
-/** [DEBUG-lock] 临时埋点：每次锁页渲染记录 nonce 与请求是否携带解锁 Cookie，用于排查移动浏览器解锁失败。 */
+/** [DEBUG-lock] 临时埋点：每次锁页渲染记录 nonce 与请求是否携带解锁 Cookie/探针 Cookie，用于排查移动浏览器解锁失败。 */
 function buildLockDebug(request) {
   const cookies = parseCookies(request.headers.get('Cookie') || '');
   return {
     nonce: Math.random().toString(36).slice(2, 10),
     cookie: cookies[SITE_LOCK_COOKIE_NAME] ? 'present' : 'absent',
+    probe: cookies.nav_site_lock_probe ? 'present' : 'absent',
     t: new Date().toISOString().slice(11, 19),
   };
 }
@@ -68,7 +69,11 @@ export async function handleSiteLockRequest(request, env) {
   // 页面：锁页位于 /，携带同源回跳地址；访问 / 直接渲染锁页（避免 302 环）。
   if (path === '/') {
     const i18n = resolveI18n(request);
-    return renderSiteLockPage({ next: url.searchParams.get('next') || '', i18n, debug: buildLockDebug(request) });
+    const debug = buildLockDebug(request);
+    const response = renderSiteLockPage({ next: url.searchParams.get('next') || '', i18n, debug });
+    // [DEBUG-lock] 探针 Cookie：区分「全站禁 Cookie」与「特定响应模式被拦」
+    response.headers.append('Set-Cookie', 'nav_site_lock_probe=1; Path=/; Max-Age=600; SameSite=Lax');
+    return response;
   }
   const next = `${path}${url.search}`;
   return new Response(null, {
