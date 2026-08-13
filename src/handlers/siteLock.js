@@ -1,6 +1,6 @@
 import { isAdminAuthenticated, validateApiToken } from '../lib/auth.js';
 import { resolveI18n } from '../lib/i18n.js';
-import { errorResponse } from '../lib/utils.js';
+import { errorResponse, escapeHTML, htmlResponse } from '../lib/utils.js';
 import { renderSiteLockPage } from '../pages/home/siteLock.js';
 import {
   buildSiteLockAccessCookie,
@@ -86,13 +86,15 @@ async function handleSiteLockUnlock(request, env, url) {
   if (await verifySiteLockPassword(env, password)) {
     await clearSiteLockFailures(env, throttle.key);
     const { token, ttl, duration: normalizedDuration } = await createSiteLockAccess(env, { duration });
-    return new Response(null, {
-      status: 302,
-      headers: {
-        Location: next,
-        'Set-Cookie': buildSiteLockAccessCookie(token, { maxAge: ttl, duration: normalizedDuration }),
-      },
-    });
+    // 不用 302 带 Cookie：夸克/VIA 等浏览器的广告拦截会剥 302 重定向响应的 Set-Cookie，
+    // 导致解锁 Cookie 种不上、跳回后仍见锁页。改为 200 页面设置 Cookie 后再页面内跳转
+    //（正常导航携带 Cookie），HttpOnly/Secure/SameSite 属性不变。
+    const redirectUrl = JSON.stringify(next);
+    const page = `<!DOCTYPE html>\n<html lang="${escapeHTML(i18n.lang)}">\n<head>\n<meta charset="utf-8">\n<meta http-equiv="refresh" content="0;url=${escapeHTML(next)}">\n<script>location.replace(${redirectUrl});</script>\n</head>\n<body style="margin:0"></body>\n</html>`;
+    const response = htmlResponse(page);
+    response.headers.set('Set-Cookie', buildSiteLockAccessCookie(token, { maxAge: ttl, duration: normalizedDuration }));
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
   }
 
   await registerSiteLockFailure(env, throttle.key, throttle.count);

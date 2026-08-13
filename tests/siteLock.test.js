@@ -244,9 +244,9 @@ test('锁页 POST：错误密码重渲锁页，正确密码 302 + 种解锁 Cook
   rightBody.append('password', 's3cret');
   rightBody.append('duration', '12h');
   const right = await handleSiteLockRequest(new Request('https://x/?next=%2Fgo%2F1', { method: 'POST', body: rightBody }), env);
-  assert.equal(right.status, 302);
-  assert.equal(right.headers.get('Location'), '/go/1', '解锁后回跳同源 next');
+  assert.equal(right.status, 200);
   assert.ok(right.headers.get('Set-Cookie').includes('nav_site_lock='), '应种解锁 Cookie');
+  assert.ok((await right.text()).includes('location.replace("/go/1")'), '桥页应跳转同源 next');
 });
 
 test('锁页 POST：外部回跳地址被拒绝，回首页', async () => {
@@ -257,6 +257,6 @@ test('锁页 POST：外部回跳地址被拒绝，回首页', async () => {
   body.append('password', 's3cret');
   body.append('next', 'https://evil.example/phish');
   const response = await handleSiteLockRequest(new Request('https://x/', { method: 'POST', body }), env);
-  assert.equal(response.status, 302);
-  assert.equal(response.headers.get('Location'), '/', '外部地址应回首页');
+  assert.equal(response.status, 200);
+  assert.ok((await response.text()).includes('location.replace("/")'), '外部地址应回首页');
 });
