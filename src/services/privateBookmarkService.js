@@ -160,15 +160,20 @@ export async function hasPrivateBookmarkAccess(request, env) {
   const payload = await env.NAV_AUTH.get(sessionKey);
   if (!payload) return false;
 
-  // 滑动续期：根据当前 token 的原始 ttl 续期；解析失败则回退到默认 12h
+  // 滑动续期降频：剩余时间 > TTL 一半时跳过 KV 写（每请求 1 写 → 约每 TTL/2 1 写）。
   let renewTtl = PRIVATE_ACCESS_TTL_SECONDS;
+  let createdAt = 0;
   try {
     const parsed = JSON.parse(payload);
     if (Number.isFinite(Number(parsed?.ttl))) renewTtl = Number(parsed.ttl);
+    createdAt = Number(parsed?.createdAt) || 0;
   } catch {
     // 兼容旧 payload 格式
   }
-  await env.NAV_AUTH.put(sessionKey, payload, { expirationTtl: renewTtl });
+  const remainingMs = createdAt ? createdAt + renewTtl * 1000 - Date.now() : 0;
+  if (!createdAt || remainingMs <= (renewTtl * 1000) / 2) {
+    await env.NAV_AUTH.put(sessionKey, payload, { expirationTtl: renewTtl });
+  }
   return true;
 }
 

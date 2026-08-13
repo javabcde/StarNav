@@ -131,20 +131,37 @@ export async function validateAdminSession(request, env) {
   if (!payload) return { authenticated: false };
 
   // 绝对过期：即使持续活跃，会话最长存活 SESSION_ABSOLUTE_TTL_SECONDS，限制被盗会话的滥用窗口
-  let createdAt = 0;
+  let parsedPayload = null;
   try {
-    createdAt = Number(JSON.parse(payload).createdAt) || 0;
+    parsedPayload = JSON.parse(payload);
   } catch {
-    createdAt = 0;
+    parsedPayload = null;
   }
+  const createdAt = Number(parsedPayload?.createdAt) || 0;
   if (createdAt && Date.now() - createdAt > SESSION_ABSOLUTE_TTL_SECONDS * 1000) {
     await destroyAdminSession(env, token);
     return { authenticated: false };
   }
 
-  await refreshAdminSession(env, token, payload);
+  // 滑动续期降频：距上次续期不足 SESSION_TTL_SECONDS/2 时跳过 KV 写。
+  // KV 内 TTL 仍有 ≥ 一半余量，会话不会提前过期；持续活跃的会话每半个
+  // 滑动窗口续期一次，KV 写从每请求 1 次降到约每 6 小时 1 次。
+  const lastRefresh = Number(parsedPayload?.lastRefresh) || 0;
+  const now = Date.now();
+  if (now - (lastRefresh || createdAt) >= (SESSION_TTL_SECONDS * 1000) / 2) {
+    if (parsedPayload) {
+      await refreshAdminSession(env, token, JSON.stringify({ ...parsedPayload, lastRefresh: now }));
+    } else {
+      await refreshAdminSession(env, token, payload); // 解析失败保持原样续期
+    }
+  }
   return { authenticated: true, token };
 }
+
+// 请求级 admin 鉴权结果缓存：锁中间件与页面/API handler 在同一请求内
+// 多次调用 isAdminAuthenticated 时只做一次 KV 读。WeakMap 键为 Request 对象，
+// 请求结束即随对象回收，无跨请求泄漏。
+const adminAuthCache = new WeakMap();
 
 /**
  * 判断当前请求是否已通过后台管理员鉴权。
@@ -154,8 +171,13 @@ export async function validateAdminSession(request, env) {
  * @returns {Promise<boolean>}
  */
 export async function isAdminAuthenticated(request, env) {
-  const { authenticated } = await validateAdminSession(request, env);
-  return authenticated;
+  const cached = adminAuthCache.get(request);
+  if (cached !== undefined) return cached;
+  const promise = validateAdminSession(request, env)
+    .then((result) => result.authenticated)
+    .catch(() => false);
+  adminAuthCache.set(request, promise);
+  return promise;
 }
 
 function toHex(buffer) {

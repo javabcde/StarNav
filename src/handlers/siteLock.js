@@ -39,8 +39,13 @@ export async function handleSiteLockRequest(request, env) {
 
   if (isSiteLockAllowlisted(path, request.method)) return null;
   if (!(await isSiteLockEnabled(env))) return null;
-  if (await isAdminAuthenticated(request, env)) return null;
-  if (await hasSiteLockAccess(request, env)) return null;
+  // admin 会话与解锁会话互相独立，并行校验省一次串行 KV 往返。
+  const [adminAuthed, hasAccess] = await Promise.all([
+    isAdminAuthenticated(request, env),
+    hasSiteLockAccess(request, env),
+  ]);
+  if (adminAuthed) return null;
+  if (hasAccess) return null;
 
   // 锁页表单提交（POST /）。
   if (path === '/' && request.method === 'POST') {
