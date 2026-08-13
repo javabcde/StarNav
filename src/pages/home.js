@@ -1,5 +1,5 @@
 import { isAdminAuthenticated } from '../lib/auth.js';
-import { escapeHTML, htmlResponse, isSubmissionEnabled, sanitizeImageUrl, sanitizeUrl } from '../lib/utils.js';
+import { escapeHTML, htmlResponse, isSubmissionEnabled, sanitizeImageUrl, sanitizeUrl, textResponse } from '../lib/utils.js';
 import { resolveI18n } from '../lib/i18n.js';
 import { canListSite, getAllSites } from '../services/siteService.js';
 import { getCategoryTree } from '../services/categoryService.js';
@@ -148,15 +148,20 @@ export async function renderHomePage(request, env, ctx) {
     logo: sanitizeImageUrl(site.logo) || '',
   }));
   const siteIndexJson = JSON.stringify(siteIndex).replace(/</g, '\\u003c');
+  // 性能优化：只渲染默认 grid 布局。grouped/dashboard 由客户端切换到该布局时，
+  // 以 ?layout=grouped|dashboard 片段请求按需拉取，避免三种布局全量渲染（500+ 书签时 HTML 减 2/3）。
+  const requestedLayout = String(url.searchParams.get('layout') || '').toLowerCase();
+  if (requestedLayout === 'grouped' || requestedLayout === 'dashboard') {
+    const fragment = privateCatalogLocked
+      ? renderPrivateBookmarkUnlockBox(catalog, i18n)
+      : requestedLayout === 'grouped'
+        ? renderGroupedSites(currentSites, adminAuthed, i18n)
+        : renderDashboardSites(currentSites, adminAuthed, i18n);
+    return textResponse(fragment, 'text/html; charset=utf-8', { 'Cache-Control': 'no-store' });
+  }
   const gridContent = privateCatalogLocked
     ? renderPrivateBookmarkUnlockBox(catalog, i18n)
     : currentSites.map((site) => renderSiteCard(site, canDragSort, adminAuthed, i18n)).join('');
-  const groupedContent = privateCatalogLocked
-    ? ''
-    : renderGroupedSites(currentSites, adminAuthed, i18n);
-  const dashboardContent = privateCatalogLocked
-    ? ''
-    : renderDashboardSites(currentSites, adminAuthed, i18n);
 
   return htmlResponse(`<!DOCTYPE html>
 <html lang="${escapeHTML(lang)}" dir="${escapeHTML(dir)}">
@@ -296,10 +301,10 @@ export async function renderHomePage(request, env, ctx) {
           </div>
         </div>
         <div id="layoutGroupedPanel" class="layout-panel">
-          ${privateCatalogLocked ? renderPrivateBookmarkUnlockBox(catalog, i18n) : groupedContent}
+          <!-- 懒加载：切换到分组布局时按需拉取 ?layout=grouped 片段 -->
         </div>
         <div id="layoutDashboardPanel" class="layout-panel">
-          ${privateCatalogLocked ? renderPrivateBookmarkUnlockBox(catalog, i18n) : dashboardContent}
+          <!-- 懒加载：切换到概览布局时按需拉取 ?layout=dashboard 片段 -->
         </div>
       </div>
     </section>
@@ -593,7 +598,17 @@ document.addEventListener('DOMContentLoaded',function(){
   function setThemePref(key,value){document.documentElement.dataset[key]=value;localStorage.setItem('nav:'+key,value);if(key==='accent'&&themeMeta)themeMeta.setAttribute('content',themeColors[value]||themeColors.blue);if(key==='layout')applyLayout(value);updateThemeControls()}
   function updateThemeToggle(){if(themeToggle)themeToggle.textContent=document.documentElement.classList.contains('dark')?'☀️':'🌙'}
   function updateThemeControls(){document.querySelectorAll('[data-theme-key]').forEach(function(btn){btn.classList.toggle('active',document.documentElement.dataset[btn.dataset.themeKey]===btn.dataset.themeValue)});document.querySelectorAll('.layout-toggle').forEach(function(btn){const active=document.documentElement.dataset.layout===btn.dataset.layout;btn.classList.toggle('bg-primary-600',active);btn.classList.toggle('text-white',active);btn.classList.toggle('text-gray-600',!active)})}
-  function applyLayout(layout){const normalized=['grid','list','grouped','masonry','dashboard'].includes(layout)?layout:'grid';document.documentElement.dataset.layout=normalized;document.getElementById('layoutGridPanel')?.classList.toggle('active',['grid','list','masonry'].includes(normalized));document.getElementById('layoutGroupedPanel')?.classList.toggle('active',normalized==='grouped');document.getElementById('layoutDashboardPanel')?.classList.toggle('active',normalized==='dashboard')}
+  function loadLayoutFragment(layout){
+    const panel = layout === 'grouped' ? document.getElementById('layoutGroupedPanel') : (layout === 'dashboard' ? document.getElementById('layoutDashboardPanel') : null);
+    if (!panel || panel.dataset.loaded === '1') return;
+    panel.dataset.loaded = '1';
+    panel.innerHTML = '<div class="py-10 text-center text-primary-600">正在加载…</div>';
+    fetch('/?layout=' + encodeURIComponent(layout) + (window.location.search || ''), { headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(function (html) { panel.innerHTML = html; })
+      .catch(function () { panel.dataset.loaded = ''; panel.innerHTML = '<div class="py-10 text-center text-red-600">加载失败，请重试</div>'; });
+  }
+  function applyLayout(layout){const normalized=['grid','list','grouped','masonry','dashboard'].includes(layout)?layout:'grid';document.documentElement.dataset.layout=normalized;document.getElementById('layoutGridPanel')?.classList.toggle('active',['grid','list','masonry'].includes(normalized));document.getElementById('layoutGroupedPanel')?.classList.toggle('active',normalized==='grouped');document.getElementById('layoutDashboardPanel')?.classList.toggle('active',normalized==='dashboard');if(normalized==='grouped')loadLayoutFragment('grouped');if(normalized==='dashboard')loadLayoutFragment('dashboard')}
   Object.keys(themeDefaults).forEach(function(key){document.documentElement.dataset[key]=getThemePref(key)});
   if(themeMeta)themeMeta.setAttribute('content',themeColors[getThemePref('accent')]||themeColors.blue);
   applyLayout(getThemePref('layout'));
