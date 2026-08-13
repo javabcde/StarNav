@@ -1,16 +1,38 @@
 import { normalizeDuplicateUrlKey } from './siteService.js';
 
-// 模块级缓存：在单个 Worker isolate 生命周期内只运行一次迁移。
-// 注意：此缓存与第一次调用时传入的 env 绑定，适用于单一 D1 绑定的场景。
+// 部署链路（GitHub Actions）每次 push 已执行幂等 schema.sql（wrangler d1 execute --file=schema.sql）。
+// 运行时迁移仅对「全新 D1（无 KV 标记）」或「SCHEMA_MIGRATION_VERSION 升级」补跑。
+// 用 KV 标记避免每个冷 isolate 的首个请求都执行迁移 batch：
+// 免费版 Workers isolate 空闲即回收，若不加门控，绝大多数请求都会白付这大笔 D1 开销。
+// 注意：修改下方 runMigration 的表/索引定义时，必须同步递增 SCHEMA_MIGRATION_VERSION。
+const SCHEMA_MIGRATION_VERSION = '1';
+const SCHEMA_MIGRATION_KV_KEY = 'schema_migration:version';
+
+// 模块级状态：单个 Worker isolate 生命周期内只迁移一次（或确认跳过）。
+let migrationState = 'pending'; // pending | running | done
 let migrationPromise = null;
 
 export async function ensureSchema(env) {
-  if (!migrationPromise) {
-    migrationPromise = runMigration(env).catch((error) => {
+  if (migrationState === 'done') return;
+  if (migrationState === 'running') return migrationPromise;
+  migrationState = 'running';
+  migrationPromise = (async () => {
+    try {
+      const kv = env?.NAV_AUTH;
+      const marker = kv?.get ? await kv.get(SCHEMA_MIGRATION_KV_KEY) : null;
+      if (marker === SCHEMA_MIGRATION_VERSION) {
+        migrationState = 'done';
+        return;
+      }
+      await runMigration(env);
+      if (kv?.put) await kv.put(SCHEMA_MIGRATION_KV_KEY, SCHEMA_MIGRATION_VERSION);
+      migrationState = 'done';
+    } catch (error) {
+      migrationState = 'pending'; // 失败不缓存，下次请求重试
       migrationPromise = null;
       throw error;
-    });
-  }
+    }
+  })();
   return migrationPromise;
 }
 
