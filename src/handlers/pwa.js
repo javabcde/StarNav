@@ -174,7 +174,7 @@ export async function handlePwaRequest(request, env) {
     return textResponse(`const CACHE_NAME='${cacheName}';
 const RUNTIME_CACHE='${runtimeCacheName}';
 const SHELL_URLS=${shellUrlsStr};
-const FONT_HOSTS=['fonts.googleapis.com','fonts.gstatic.com','cdn.tailwindcss.com'];
+const FONT_HOSTS=['fonts.googleapis.com','fonts.gstatic.com'];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE_NAME).then(cache=>{
     return Promise.all(SHELL_URLS.map(url=>{

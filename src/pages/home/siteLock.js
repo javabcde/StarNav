@@ -1,4 +1,5 @@
 import { escapeHTML, htmlResponse } from '../../lib/utils.js';
+import { homeCssVersion } from './css.js';
 
 /**
  * 整站锁全屏密码页。复用 renderPrivateBookmarkPasswordPage 的渲染模式
@@ -23,7 +24,7 @@ export function renderSiteLockPage({ next = '', error = '', i18n } = {}) {
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${th('siteLockTitle')} - ${th('appName')}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/static/home.css?v=${homeCssVersion}">
 </head>
 <body class="min-h-screen bg-slate-50 text-gray-800 flex items-center justify-center px-4">
   <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-xl">

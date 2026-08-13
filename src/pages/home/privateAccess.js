@@ -1,5 +1,6 @@
 import { escapeHTML, htmlResponse } from '../../lib/utils.js';
 import { PRIVATE_BOOKMARK_CATEGORY } from '../../services/privateBookmarkService.js';
+import { homeCssVersion } from './css.js';
 
 export function renderPrivateBookmarkUnlockBox(catalog, i18n = null) {
   return `<div class="col-span-full rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center">
@@ -30,7 +31,7 @@ export function renderPrivateBookmarkPasswordPage({ catalog, error = '', i18n })
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${th('privateBookmark')} - ${th('appName')}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/static/home.css?v=${homeCssVersion}">
 </head>
 <body class="min-h-screen bg-amber-50 text-gray-800 flex items-center justify-center px-4">
   <div class="w-full max-w-md rounded-2xl border border-amber-200 bg-white p-8 shadow-xl">
