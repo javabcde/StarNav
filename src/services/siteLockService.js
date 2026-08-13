@@ -16,6 +16,10 @@ export const SITE_LOCK_MIN_PASSWORD_LENGTH = 4;
 
 const SITE_LOCK_ACCESS_TOKEN_PREFIX = 'site-lock:access:';
 const SITE_LOCK_PASSWORD_SETTING_KEY = 'site_lock_password';
+const SITE_LOCK_STATE_KV_KEY = 'site_lock:enabled';
+// 锁状态 KV 缓存 TTL：写锁设置时同步 put（秒级全局生效），TTL 仅兜底
+// “DB 被外部直接修改”等失步场景（最多滞后一个 TTL 自愈）。
+const SITE_LOCK_STATE_TTL_SECONDS = 60;
 const SITE_LOCK_TTL_SECONDS = 60 * 60 * 12;
 const SITE_LOCK_TTL_OPTIONS = {
   session: 60 * 60 * 24,
@@ -130,10 +134,28 @@ async function verifyPasswordHash(password, storedHash) {
 
 /**
  * 整站锁是否启用：配置了非空密码即为启用（密码即开关，无独立开关）。
+ * 锁状态缓存在 KV：命中即省一次 D1 读；写锁设置（update/clear）时同步刷新。
  */
 export async function isSiteLockEnabled(env) {
+  const cached = await env?.NAV_AUTH?.get?.(SITE_LOCK_STATE_KV_KEY, 'text');
+  if (cached === '1') return true;
+  if (cached === '0') return false;
+
   const record = await getSettingRecord(env, SITE_LOCK_PASSWORD_SETTING_KEY, '');
-  return record.exists && Boolean(cleanText(record.value));
+  const enabled = record.exists && Boolean(cleanText(record.value));
+  await cacheSiteLockState(env, enabled);
+  return enabled;
+}
+
+/**
+ * 将锁状态写入 KV 缓存（失败仅告警，不影响主流程）。
+ */
+async function cacheSiteLockState(env, enabled) {
+  try {
+    await env?.NAV_AUTH?.put?.(SITE_LOCK_STATE_KV_KEY, enabled ? '1' : '0', { expirationTtl: SITE_LOCK_STATE_TTL_SECONDS });
+  } catch (error) {
+    console.warn(`[siteLockService] cache lock state failed: ${error?.message || error}`);
+  }
 }
 
 /**
@@ -150,6 +172,7 @@ export async function updateSiteLockPassword(env, password) {
   }
   await setSetting(env, SITE_LOCK_PASSWORD_SETTING_KEY, await hashPassword(normalized));
   await clearSiteLockAccessTokens(env);
+  await cacheSiteLockState(env, true);
 }
 
 /**
@@ -158,6 +181,7 @@ export async function updateSiteLockPassword(env, password) {
 export async function clearSiteLockPassword(env) {
   await deleteSetting(env, SITE_LOCK_PASSWORD_SETTING_KEY);
   await clearSiteLockAccessTokens(env);
+  await cacheSiteLockState(env, false);
 }
 
 /**
