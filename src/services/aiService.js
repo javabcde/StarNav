@@ -407,10 +407,16 @@ async function callOpenAiCompatible({ settings, message, context }) {
     body: JSON.stringify({
       model: settings.model,
       messages: [
-        { role: 'system', content: settings.systemPrompt },
-        { role: 'system', content: '事实性约束：你正在做 RAG 问答。“本站书签检索结果”是唯一可信数据源。回答书签是否存在、在哪个分类、链接是什么、包含某字/某词的所有书签、某分类/标签有哪些等事实型问题时，只能使用检索结果中的条目。检索结果为空时必须说本站未找到；检索结果非空时不得说未检索到。不要输出检索结果中不存在的名称、分类、标签、URL。' },
-        { role: 'system', content: '输出格式要求：请使用中文纯文本回答；可以使用编号列表，但不要使用 Markdown 加粗、标题符号或多余星号。不要把“**”输出给用户。' },
-        { role: 'system', content: `本站书签检索结果：\n${context}` },
+        {
+          // 硅基流动要求 system 消息只能一条且在开头（多条 system 会返回 20015）
+          role: 'system',
+          content: [
+            settings.systemPrompt,
+            '事实性约束：你正在做 RAG 问答。“本站书签检索结果”是唯一可信数据源。回答书签是否存在、在哪个分类、链接是什么、包含某字/某词的所有书签、某分类/标签有哪些等事实型问题时，只能使用检索结果中的条目。检索结果为空时必须说本站未找到；检索结果非空时不得说未检索到。不要输出检索结果中不存在的名称、分类、标签、URL。',
+            '输出格式要求：请使用中文纯文本回答；可以使用编号列表，但不要使用 Markdown 加粗、标题符号或多余星号。不要把“**”输出给用户。',
+            `本站书签检索结果：\n${context}`,
+          ].filter(Boolean).join('\n\n'),
+        },
         { role: 'user', content: message },
       ],
       temperature: 0.3,
