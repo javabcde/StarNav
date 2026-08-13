@@ -53,7 +53,8 @@ export function renderSiteLockPage({ next = '', error = '', i18n } = {}) {
 </html>`);
 
   if (!error) {
-    response.headers.set('Cache-Control', 'public, max-age=0, s-maxage=60');
+    // s-maxage 供 CDN 复用；must-revalidate 防止移动浏览器（如夸克）展示失效的旧锁页
+    response.headers.set('Cache-Control', 'public, max-age=0, must-revalidate, s-maxage=60');
   }
   return response;
 }
