@@ -8,6 +8,7 @@ import { listTags } from './tagService.js';
 const AI_SETTING_PREFIX = 'ai.';
 const DEFAULT_AI_SETTINGS = {
   enabled: 'false',
+  enableThinking: 'false',
   apiKey: '',
   baseUrl: 'https://api.openai.com/v1/chat/completions',
   model: 'gpt-4o-mini',
@@ -37,11 +38,13 @@ export async function getAiSettings(env, { includeSecret = false } = {}) {
 
 export async function updateAiSettings(env, payload = {}) {
   const enabled = payload.enabled === true || payload.enabled === 'true' ? 'true' : 'false';
+  const enableThinking = payload.enableThinking === true || payload.enableThinking === 'true' ? 'true' : 'false';
   const baseUrl = cleanText(payload.baseUrl) || DEFAULT_AI_SETTINGS.baseUrl;
   const model = cleanText(payload.model) || DEFAULT_AI_SETTINGS.model;
   const systemPrompt = cleanText(payload.systemPrompt) || DEFAULT_AI_SETTINGS.systemPrompt;
 
   await setSetting(env, `${AI_SETTING_PREFIX}enabled`, enabled);
+  await setSetting(env, `${AI_SETTING_PREFIX}enableThinking`, enableThinking);
   await setSetting(env, `${AI_SETTING_PREFIX}baseUrl`, baseUrl);
   await setSetting(env, `${AI_SETTING_PREFIX}model`, model);
   await setSetting(env, `${AI_SETTING_PREFIX}systemPrompt`, systemPrompt);
@@ -59,6 +62,7 @@ function normalizeAiSettingsPayload(savedSettings, payload = {}) {
   return {
     ...savedSettings,
     enabled: payload.enabled === true || payload.enabled === 'true' ? 'true' : savedSettings.enabled,
+    enableThinking: payload.enableThinking === true || payload.enableThinking === 'true' ? 'true' : savedSettings.enableThinking,
     baseUrl: cleanText(payload.baseUrl) || savedSettings.baseUrl || DEFAULT_AI_SETTINGS.baseUrl,
     model: cleanText(payload.model) || savedSettings.model || DEFAULT_AI_SETTINGS.model,
     systemPrompt: cleanText(payload.systemPrompt) || savedSettings.systemPrompt || DEFAULT_AI_SETTINGS.systemPrompt,
@@ -420,6 +424,9 @@ async function callOpenAiCompatible({ settings, message, context }) {
         { role: 'user', content: message },
       ],
       temperature: 0.3,
+      // 硅基流动等支持 enable_thinking 的 provider：false 关闭推理模型思考（更快更省）；
+      // 不支持的 provider 会忽略该参数。默认关闭，后台可开。
+      enable_thinking: settings.enableThinking === 'true',
     }),
   });
 

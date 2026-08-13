@@ -594,6 +594,7 @@ export const adminHtml = `<!DOCTYPE html>
         </div>
         <div class="private-settings-card ai-settings-card">
           <label><input type="checkbox" id="aiEnabled"> 启用大语言模型回复</label>
+          <label><input type="checkbox" id="aiEnableThinking"> 启用模型思考（默认关闭；关闭时向 API 发送 enable_thinking=false，推理模型响应更快更省 token）</label>
           <label for="aiBaseUrl">接口地址（OpenAI Chat Completions 兼容）</label>
           <input type="text" id="aiBaseUrl" placeholder="https://api.openai.com/v1/chat/completions">
           <label for="aiModel">模型名称</label>
