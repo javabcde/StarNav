@@ -148,9 +148,21 @@ export async function renderHomePage(request, env, ctx) {
     logo: sanitizeImageUrl(site.logo) || '',
   }));
   const siteIndexJson = JSON.stringify(siteIndex).replace(/</g, '\\u003c');
-  // 性能优化：只渲染默认 grid 布局。grouped/dashboard 由客户端切换到该布局时，
-  // 以 ?layout=grouped|dashboard 片段请求按需拉取，避免三种布局全量渲染（500+ 书签时 HTML 减 2/3）。
+  // 性能优化：默认 grid 布局分页渲染（首屏只渲染前 GRID_PAGE_SIZE 个书签）；
+  // grouped/dashboard 由客户端切换到该布局时以 ?layout=grouped|dashboard 片段请求按需拉取；
+  // grid 后续页以 ?layout=grid&page=N 片段追加。
+  const GRID_PAGE_SIZE = 60;
+  const gridPage = Math.max(1, Number(url.searchParams.get('page')) || 1);
   const requestedLayout = String(url.searchParams.get('layout') || '').toLowerCase();
+  if (requestedLayout === 'grid') {
+    const start = (gridPage - 1) * GRID_PAGE_SIZE;
+    const pageCards = privateCatalogLocked
+      ? ''
+      : currentSites.slice(start, start + GRID_PAGE_SIZE).map((site) => renderSiteCard(site, canDragSort, adminAuthed, i18n)).join('');
+    const response = textResponse(pageCards, 'text/html; charset=utf-8', { 'Cache-Control': 'no-store' });
+    response.headers.set('X-Sites-Total', String(currentSites.length));
+    return response;
+  }
   if (requestedLayout === 'grouped' || requestedLayout === 'dashboard') {
     const fragment = privateCatalogLocked
       ? renderPrivateBookmarkUnlockBox(catalog, i18n)
@@ -161,7 +173,8 @@ export async function renderHomePage(request, env, ctx) {
   }
   const gridContent = privateCatalogLocked
     ? renderPrivateBookmarkUnlockBox(catalog, i18n)
-    : currentSites.map((site) => renderSiteCard(site, canDragSort, adminAuthed, i18n)).join('');
+    : currentSites.slice(0, GRID_PAGE_SIZE).map((site) => renderSiteCard(site, canDragSort, adminAuthed, i18n)).join('');
+  const hasMoreGrid = !privateCatalogLocked && currentSites.length > GRID_PAGE_SIZE;
 
   return htmlResponse(`<!DOCTYPE html>
 <html lang="${escapeHTML(lang)}" dir="${escapeHTML(dir)}">
@@ -299,6 +312,7 @@ export async function renderHomePage(request, env, ctx) {
           <div id="sitesGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
             ${gridContent}
           </div>
+          ${hasMoreGrid ? `<div class="mt-6 text-center"><button type="button" id="loadMoreSites" class="rounded-full border border-primary-200 bg-white px-6 py-2.5 text-sm font-medium text-primary-700 shadow-sm hover:bg-primary-50">加载更多（剩余 ${currentSites.length - GRID_PAGE_SIZE} 个）</button></div>` : ''}
         </div>
         <div id="layoutGroupedPanel" class="layout-panel">
           <!-- 懒加载：切换到分组布局时按需拉取 ?layout=grouped 片段 -->
@@ -833,8 +847,44 @@ document.addEventListener('DOMContentLoaded',function(){
   searchHistoryList?.addEventListener('click',function(e){const btn=e.target.closest('.search-history-chip');if(!btn||!search)return;search.value=btn.dataset.keyword||'';search.dispatchEvent(new Event('input',{bubbles:true}));search.focus()});
   clearSearchHistory?.addEventListener('click',function(){localStorage.removeItem(SEARCH_HISTORY_KEY);renderSearchHistory()});
   grid?.addEventListener('click',function(e){const suggest=e.target.closest('.search-suggest');if(suggest&&search){e.preventDefault();e.stopPropagation();search.value=suggest.dataset.keyword||'';search.dispatchEvent(new Event('input',{bubbles:true}));search.focus();return}if(e.target.closest('#searchAskAiBtn')){e.preventDefault();e.stopPropagation();openFloatingAiPanel();if(aiChatInput){aiChatInput.value='帮我找：'+(search?.value||'');aiChatInput.focus()}return}if(e.target.closest('#searchSubmitSiteBtn')){e.preventDefault();e.stopPropagation();modal?.classList.remove('opacity-0','invisible')}});
-  search?.addEventListener('input',function(){const kw=this.value.trim();clearTimeout(searchTimer);if(!kw){if(searchController)searchController.abort();grid.innerHTML=originalGridHTML;heading.textContent=originalHeading;applyLayout(getThemePref('layout'));updateThemeControls();return}applyLayout('grid');heading.textContent='搜索中 · '+kw;grid.innerHTML='<div class="col-span-full rounded-2xl border border-primary-100 bg-white p-8 text-center text-primary-600">正在全站搜索...</div>';searchTimer=setTimeout(function(){if(searchController)searchController.abort();searchController=new AbortController();fetch('/api/search?q='+encodeURIComponent(kw)+'&limit=80',{signal:searchController.signal}).then(r=>r.json()).then(d=>{const items=Array.isArray(d.data)?d.data:[];addSearchHistory(kw);heading.textContent='全站搜索 · '+kw+' · '+items.length+' 个结果';grid.innerHTML=items.length?items.map(item=>renderSearchResultCard(item,kw)).join(''):renderSearchEmpty(kw)}).catch(err=>{if(err.name==='AbortError')return;heading.textContent='搜索失败';grid.innerHTML='<div class="col-span-full rounded-2xl border border-red-200 bg-red-50 p-8 text-center text-red-700">搜索失败，请稍后重试。</div>'})},260)});
+  search?.addEventListener('input',function(){const kw=this.value.trim();clearTimeout(searchTimer);if(!kw){if(searchController)searchController.abort();grid.innerHTML=originalGridHTML;heading.textContent=originalHeading;applyLayout(getThemePref('layout'));updateThemeControls();gridNextPage=2;return}applyLayout('grid');heading.textContent='搜索中 · '+kw;grid.innerHTML='<div class="col-span-full rounded-2xl border border-primary-100 bg-white p-8 text-center text-primary-600">正在全站搜索...</div>';searchTimer=setTimeout(function(){if(searchController)searchController.abort();searchController=new AbortController();fetch('/api/search?q='+encodeURIComponent(kw)+'&limit=80',{signal:searchController.signal}).then(r=>r.json()).then(d=>{const items=Array.isArray(d.data)?d.data:[];addSearchHistory(kw);heading.textContent='全站搜索 · '+kw+' · '+items.length+' 个结果';grid.innerHTML=items.length?items.map(item=>renderSearchResultCard(item,kw)).join(''):renderSearchEmpty(kw)}).catch(err=>{if(err.name==='AbortError')return;heading.textContent='搜索失败';grid.innerHTML='<div class="col-span-full rounded-2xl border border-red-200 bg-red-50 p-8 text-center text-red-700">搜索失败，请稍后重试。</div>'})},260)});
   grid?.addEventListener('click',function(e){const btn=e.target.closest('.search-copy-btn');if(!btn)return;e.preventDefault();e.stopPropagation();const url=btn.dataset.url;if(!url)return;navigator.clipboard.writeText(url).then(()=>{btn.textContent='已复制';setTimeout(()=>btn.textContent='复制',1200)})});
+
+  // 首页 grid 分页：加载更多（追加片段并复绑拖拽）
+  const loadMoreBtn = document.getElementById('loadMoreSites');
+  let gridNextPage = 2;
+  loadMoreBtn?.addEventListener('click', function () {
+    const btn = this;
+    btn.disabled = true;
+    const params = new URLSearchParams(window.location.search);
+    params.set('layout', 'grid');
+    params.set('page', String(gridNextPage));
+    fetch('/?' + params.toString(), { headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) {
+        const total = Number(r.headers.get('X-Sites-Total')) || 0;
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text().then(function (html) { return { html, total }; });
+      })
+      .then(function ({ html, total }) {
+        const grid = document.getElementById('sitesGrid');
+        const frag = document.createElement('template');
+        frag.innerHTML = html;
+        const cards = [...frag.content.querySelectorAll('.site-card')];
+        cards.forEach(function (card) {
+          grid.appendChild(card);
+          if (window.__bindSiteCardDrag) window.__bindSiteCardDrag(card);
+        });
+        gridNextPage += 1;
+        const loaded = grid.querySelectorAll('.site-card').length;
+        if (loaded >= total || cards.length === 0) {
+          btn.style.display = 'none';
+        } else {
+          btn.disabled = false;
+          btn.textContent = '加载更多（剩余 ' + (total - loaded) + ' 个）';
+        }
+      })
+      .catch(function () { btn.disabled = false; btn.textContent = '加载失败，点击重试'; });
+  });
 
   const modal=document.getElementById('addSiteModal'), openBtn=document.getElementById('addSiteBtnSidebar');
   function closeModal(){modal?.classList.add('opacity-0','invisible')}

@@ -35,8 +35,8 @@ async function routeRequest(request, env, ctx) {
   }
 
   const homeLayout = url.searchParams.get('layout');
-  if (homeLayout === 'grouped' || homeLayout === 'dashboard') {
-    // 布局片段（?layout=...）：no-store，绕过首页边缘缓存（缓存键不含 layout，避免串缓存）
+  if (homeLayout === 'grid' || homeLayout === 'grouped' || homeLayout === 'dashboard') {
+    // 布局片段（?layout=...）：no-store，绕过首页边缘缓存（缓存键不含 layout/page，避免串缓存）
     return renderHomePage(request, env, ctx);
   }
 

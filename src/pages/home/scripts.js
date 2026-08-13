@@ -113,13 +113,17 @@ export function dragScript(i18n = null) {
     if(autoScrollTimer){clearInterval(autoScrollTimer);autoScrollTimer=null;}
   }
   document.addEventListener('dragover',(e)=>{lastDragY=e.clientY;});
-  document.querySelectorAll('.site-card').forEach(card=>{
+  function bindSiteCardDrag(card){
+    if(!card||card.dataset.dragBound==='1')return;
+    card.dataset.dragBound='1';
     card.addEventListener('dragstart',(e)=>{dragged=card;lastDragY=e.clientY||0;card.classList.add('dragging');startAutoScroll();console.log('[drag] start site='+card.dataset.id)});
     card.addEventListener('dragend',()=>{card.classList.remove('dragging');document.querySelectorAll('.drag-over').forEach(i=>i.classList.remove('drag-over'));stopAutoScroll();dragged=null;});
     card.addEventListener('dragover',(e)=>{e.preventDefault();lastDragY=e.clientY;card.classList.add('drag-over')});
     card.addEventListener('dragleave',()=>card.classList.remove('drag-over'));
     card.addEventListener('drop',(e)=>{e.preventDefault();lastDragY=e.clientY;card.classList.remove('drag-over');if(!dragged||dragged===card)return;const grid=document.getElementById('sitesGrid');const cards=[...grid.querySelectorAll('.site-card:not(.hidden)')];const from=cards.indexOf(dragged),to=cards.indexOf(card);console.log('[drag] drop from='+from+' to='+to);if(from<to)card.after(dragged);else card.before(dragged);dirty=true;saveBtn.disabled=false;stopAutoScroll();dragged=null;});
-  });
+  }
+  document.querySelectorAll('.site-card').forEach(bindSiteCardDrag);
+  window.__bindSiteCardDrag=bindSiteCardDrag;
   saveBtn?.addEventListener('click',()=>{const items=[...document.querySelectorAll('#sitesGrid .site-card:not(.hidden)')].map((card,i)=>({id:Number(card.dataset.id),sort_order:(i+1)*10}));console.log('[drag] save count='+items.length);saveBtn.disabled=true;saveBtn.textContent='保存中...';fetch('/api/config/reorder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items})}).then(r=>r.json()).then(d=>{if(d.code===200){dirty=false;saveBtn.textContent='已保存';setTimeout(()=>saveBtn.textContent='${saveDragSortText}',1200)}else{alert(d.message||'保存失败');saveBtn.disabled=false;saveBtn.textContent='${saveDragSortText}'}}).catch(()=>{alert('网络错误');saveBtn.disabled=false;saveBtn.textContent='${saveDragSortText}'});});
   `;
 }
