@@ -842,19 +842,46 @@ export async function getSearchAnalytics(env, { limit = 20 } = {}) {
 }
 
 /**
- * 执行高级站点搜索。
- *
- * 支持普通关键词、中文 n-gram、首字母召回，以及 `tag:`、`cat:` / `category:`、`url:`、`is:` 等高级过滤语法。
- * 返回结果会附加 `_score`、`_matchedFields`、`_matchReasons` 字段用于解释排序原因。
- *
- * @param {object} env Cloudflare Workers 环境绑定，需包含 `NAV_DB`。
- * @param {object} [options] 搜索参数。
- * @param {string} [options.keyword=''] 搜索关键词或高级搜索表达式。
- * @param {number|string} [options.limit=50] 最大返回数量，最大 100。
- * @param {boolean} [options.includePrivate=false] 是否包含私密站点候选。
- * @param {boolean} [options.adminAuthed=false] 是否管理员访问。
- * @param {boolean} [options.privateUnlocked=options.includePrivate] 是否已解锁私密书签。
- * @returns {Promise<Array<SiteRecord & {_score: number, _matchedFields: string[], _matchReasons: string[]}>>}
+ * 按 ID 批量读取站点摘要（供“我的常用”模块按需拉取，替代首页全量内联索引）。
+ * 可见性过滤与 searchSites 一致：未解锁访客拿不到 private/admin_only/unlisted 与私密分类。
+ */
+export async function listSitesByIds(env, ids = [], { includePrivate = false, adminAuthed = false, privateUnlocked = includePrivate } = {}) {
+  const cleanIds = [...new Set(ids.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))].slice(0, 50);
+  if (!cleanIds.length) return [];
+
+  const where = [`s.id IN (${cleanIds.map(() => '?').join(', ')})`];
+  const binds = [...cleanIds];
+  if (!adminAuthed) {
+    if (privateUnlocked) {
+      where.push("COALESCE(s.visibility, 'public') IN ('public', 'private')");
+    } else {
+      where.push("COALESCE(s.visibility, 'public') = 'public' AND COALESCE(c.name, s.catelog) <> ?");
+      binds.push(PRIVATE_BOOKMARK_CATEGORY);
+    }
+  }
+
+  try {
+    const { results } = await env.NAV_DB.prepare(`
+      SELECT
+        s.id,
+        s.name,
+        s.url,
+        s.logo,
+        COALESCE(c.name, s.catelog) AS catelog
+      FROM sites s
+      LEFT JOIN categories c ON c.id = s.category_id
+      WHERE ${where.join(' AND ')}
+      ORDER BY s.sort_order ASC, s.id ASC
+    `).bind(...binds).all();
+    return results || [];
+  } catch (error) {
+    console.warn(`[siteService] listSitesByIds failed: ${error?.message || error}`);
+    return [];
+  }
+}
+
+/**
+ * 全站搜索：关键词 + 高级筛选（tag:/cat:/url:/vis:），支持私密书签可见性。
  */
 export async function searchSites(env, { keyword = '', limit = 50, includePrivate = false, adminAuthed = false, privateUnlocked = includePrivate } = {}) {
   const query = parseSearchQuery(keyword);

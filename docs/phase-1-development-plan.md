@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿# StarNav 第一阶段开发规划与巡查记录
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿# StarNav 第一阶段开发规划与巡查记录
 
 > 用途：记录第一阶段核心功能开发、巡查、修正与收尾情况。
 >
@@ -498,9 +498,9 @@
 
 - [x] 敏感信息保护（已实现，本轮重新审查确认）
   - 私密书签的 URL、描述、标签在未解锁前不进入前端数据。
-  - 现状：`renderHomePage` 在 SSR 之前先 `visibleSites = sites.filter(canListSite)`，未解锁访客拿到的 visibleSites 完全不含 `private`/`admin_only`/`unlisted` 书签，gridContent / siteIndex / dashboard / grouped 等所有 HTML 输出都基于过滤后的数据。
+  - 现状：`renderHomePage` 在 SSR 之前先 `visibleSites = sites.filter(canListSite)`，未解锁访客拿到的 visibleSites 完全不含 `private`/`admin_only`/`unlisted` 书签，gridContent / dashboard / grouped 等所有 HTML 输出都基于过滤后的数据。
   - 现状：`/api/sites`、`/api/search`、`/api/config/:id`（详情）均在 SQL 层做 `COALESCE(s.visibility, 'public') = 'public' AND COALESCE(c.name, s.catelog) <> ?` 过滤，未解锁访客即使通过 API 也拿不到敏感字段。
-  - 现状：`window.__SITE_INDEX__` 同样基于 visibleSites，所以"我的常用"模块在客户端展示收藏 / 最近访问时也不会泄露未解锁的私密书签。
+  - 现状："我的常用"模块不再内联整站索引，改为按需请求 `/api/usage-sites?ids=...`（仅拉取收藏 / 最近访问中的 ID），该接口 SQL 层做同样的可见性过滤，未解锁访客拿不到私密书签摘要。
 
 ---
 

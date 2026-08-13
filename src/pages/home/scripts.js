@@ -133,8 +133,19 @@ export function myUsageScript() {
   (function(){
     var FAV_KEY='nav:favorites',RECENT_KEY='nav:recent-visits',MAX_FAV=24,MAX_RECENT=12;
     var usageSection=document.getElementById('myUsageSection');
-    var siteIndex=Array.isArray(window.__SITE_INDEX__)?window.__SITE_INDEX__:[];
-    var siteMap=new Map(siteIndex.map(function(s){return[String(s.id),s]}));
+    // 站点摘要按需拉取：只取收藏/最近访问中的 ID（≤50），替代整站索引内联注入
+    var siteIndex=[],siteMap=new Map();
+    function fetchUsageIndex(){
+      var ids=[...getFavIds(),...getRecentIds()].filter(function(v){return v}).slice(0,50);
+      if(!ids.length){renderUsage();return}
+      fetch('/api/usage-sites?ids='+encodeURIComponent(ids.join(',')))
+        .then(function(r){return r.json()})
+        .then(function(d){
+          if(d&&d.code===200&&Array.isArray(d.data)){siteIndex=d.data;siteMap=new Map(siteIndex.map(function(s){return[String(s.id),s]}))}
+          renderUsage();
+        })
+        .catch(function(){renderUsage()});
+    }
     function readJson(key){try{var v=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(v)?v:[]}catch(e){return[]}}
     function writeJson(key,arr){try{localStorage.setItem(key,JSON.stringify(arr.slice(0,key===FAV_KEY?MAX_FAV:MAX_RECENT)))}catch(e){}}
     function getFavIds(){return readJson(FAV_KEY).map(String)}
@@ -151,6 +162,7 @@ export function myUsageScript() {
     function injectAllFavButtons(){document.querySelectorAll('.site-card[data-id]').forEach(injectFavButton)}
     injectAllFavButtons();
     renderUsage();
+    fetchUsageIndex();
     var gridEl=document.getElementById('sitesGrid');
     if(gridEl&&typeof MutationObserver!=='undefined'){new MutationObserver(function(){injectAllFavButtons()}).observe(gridEl,{childList:true,subtree:false})}
     document.body.addEventListener('click',function(e){var link=e.target.closest('a[href]');if(!link)return;var card=link.closest('.site-card[data-id]');if(card){var id=card.dataset.id;if(id&&link.getAttribute('href')!=='#'&&!link.classList.contains('fav-btn')){addRecentId(id)}return}var chip=e.target.closest('.usage-chip[data-site-id]');if(chip&&!e.target.closest('.chip-remove')){addRecentId(chip.dataset.siteId)}});

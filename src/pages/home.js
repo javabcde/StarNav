@@ -140,14 +140,6 @@ export async function renderHomePage(request, env, ctx) {
       ? `${catalog}${tagLabel ? ` · ${tagLabel}` : ''}${sortLabel ? ` · ${sortLabel}` : ''} · ${t('sitesCount', { count: currentSites.length })}`
       : `${tagLabel || sortLabel || '全部收藏'}${tagLabel && sortLabel ? ` · ${sortLabel}` : ''} · ${t('sitesCount', { count: currentSites.length })}`);
   const sortLinks = renderSortLinks({ catalog, tag: tagFilter, sortMode, space: currentSpaceSlug, disabled: privateCatalogLocked, i18n });
-  const siteIndex = visibleSites.map((site) => ({
-    id: site.id,
-    name: site.name || '',
-    url: sanitizeUrl(site.url) || site.url || '',
-    catelog: site.catelog || '',
-    logo: sanitizeImageUrl(site.logo) || '',
-  }));
-  const siteIndexJson = JSON.stringify(siteIndex).replace(/</g, '\\u003c');
   // 性能优化：默认 grid 布局分页渲染（首屏只渲染前 GRID_PAGE_SIZE 个书签）；
   // grouped/dashboard 由客户端切换到该布局时以 ?layout=grouped|dashboard 片段请求按需拉取；
   // grid 后续页以 ?layout=grid&page=N 片段追加。
@@ -430,7 +422,6 @@ export async function renderHomePage(request, env, ctx) {
   ${announcement.enabled ? renderAnnouncementModal(announcement) : ''}
 
 <script>
-window.__SITE_INDEX__ = ${siteIndexJson};
 if('serviceWorker' in navigator){
   window.addEventListener('load',function(){
     navigator.serviceWorker.register('/sw.js').then(function(reg){

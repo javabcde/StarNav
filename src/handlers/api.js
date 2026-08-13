@@ -25,6 +25,7 @@ import {
   recordSearchTerm,
   reorderSites,
   searchSites,
+  listSitesByIds,
   submitSite,
   updateSite,
 } from '../services/siteService.js';
@@ -189,6 +190,13 @@ export async function handleApiRequest(request, env, ctx) {
         await deleteWebhook(env, webhookId);
         return jsonResponse({ code: 200, message: 'Webhook deleted successfully' });
       }
+    }
+
+    if (path === '/usage-sites' && method === 'GET') {
+      const { adminAuthed, privateAccess } = await getReadAccess(request, env);
+      const ids = (url.searchParams.get('ids') || '').split(',').map((v) => v.trim()).filter(Boolean).map(Number);
+      const data = await listSitesByIds(env, ids, { includePrivate: privateAccess, adminAuthed, privateUnlocked: privateAccess });
+      return jsonResponse({ code: 200, data });
     }
 
     if (path === '/search' && method === 'GET') {
