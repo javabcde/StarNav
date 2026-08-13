@@ -53,8 +53,9 @@ export function renderSiteLockPage({ next = '', error = '', i18n } = {}) {
 </html>`);
 
   if (!error) {
-    // s-maxage 供 CDN 复用；must-revalidate 防止移动浏览器（如夸克）展示失效的旧锁页
-    response.headers.set('Cache-Control', 'public, max-age=0, must-revalidate, s-maxage=60');
+    // 锁页不可被边缘缓存：与首页同 URL (/)，s-maxage 会让带解锁 Cookie 的请求命中旧锁页缓存
+    //（CDN 缓存键不含 Cookie，Worker 不会执行），造成「解锁后仍见锁页」。
+    response.headers.set('Cache-Control', 'no-store');
   }
   return response;
 }

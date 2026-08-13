@@ -100,6 +100,6 @@
 - **WHEN** 已解锁访客请求首页（带 `nav_site_lock` Cookie）
 - **THEN** 页面不走共享缓存，渲染结果不污染缓存
 
-#### Scenario: 锁页可被缓存
-- **WHEN** 锁已启用，匿名访客请求首页
-- **THEN** 锁页作为该状态下唯一渲染结果正常写入共享缓存（对所有匿名访客一致）
+#### Scenario: 锁页不被边缘缓存
+- **WHEN** 锁已启用，匿名访客请求首页得到锁页
+- **THEN** 锁页响应 `Cache-Control: no-store`，CDN 不缓存——因锁页与首页同 URL（`/`），CDN 缓存键不含 Cookie，s-maxage 会让带解锁 Cookie 的请求命中旧锁页缓存（Worker 不执行），导致「解锁后仍见锁页」
