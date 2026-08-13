@@ -1,3 +1,39 @@
+// 站内浏览缓存预热：浏览器启动/扩展安装时后台拉取第一页与分类，
+// 写入与 popup 相同的本地缓存结构，首次打开 popup 浏览视图直接命中，
+// 服务端冷启动延迟不再被用户感知。
+const BROWSE_CACHE_KEY = 'browse:cache:v1';
+
+async function warmBrowseCache() {
+  try {
+    const settings = await chrome.storage.sync.get(['baseUrl', 'token']);
+    const baseUrl = settings.baseUrl ? settings.baseUrl.replace(/\/$/, '') : '';
+    const token = settings.token || '';
+    if (!baseUrl || !token) return;
+
+    const headers = { Authorization: `Bearer ${token}` };
+    const params = new URLSearchParams({ page: '1', pageSize: '30', keyword: '', catalog: '', sort: '' });
+    const [listRes, catsRes] = await Promise.all([
+      fetch(`${baseUrl}/api/config?${params.toString()}`, { headers }),
+      fetch(`${baseUrl}/api/categories`, { headers }),
+    ]);
+    if (!listRes.ok || !catsRes.ok) return;
+
+    const [listData, catsData] = await Promise.all([listRes.json(), catsRes.json()]);
+    // 解析规则与 popup.extractSiteList 保持一致：data 数组或 data.list 形态
+    const data = listData && listData.data;
+    const items = Array.isArray(data) ? data : (data && Array.isArray(data.list) ? data.list : []);
+    const total = Number(listData.total != null ? listData.total : (data && data.total)) || items.length;
+    const rawCats = Array.isArray(catsData && catsData.data) ? catsData.data : [];
+    const categories = rawCats.map((c) => String((c && c.name) || '')).filter(Boolean);
+
+    await chrome.storage.local.set({
+      [BROWSE_CACHE_KEY]: { signature: '||', fetchedAt: Date.now(), items, total, page: 2, categories },
+    });
+  } catch {
+    // 预热失败静默：popup 首次打开仍走正常拉取
+  }
+}
+
 // 创建右键菜单
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -5,7 +41,11 @@ chrome.runtime.onInstalled.addListener(() => {
     title: "收藏当前网页到 StarNav",
     contexts: ["page", "link"]
   });
+  warmBrowseCache();
 });
+
+// 浏览器启动时预热（MV3 service worker 由事件唤醒）
+chrome.runtime.onStartup.addListener(() => warmBrowseCache());
 
 // 监听右键菜单点击
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {

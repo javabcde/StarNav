@@ -643,7 +643,7 @@ function updateBrowseMore() {
   els.browseMore.textContent = '加载更多';
 }
 
-async function loadBrowse(reset = false, { skipCache = false } = {}) {
+async function loadBrowse(reset = false, { skipCache = false, silent = false } = {}) {
   if (browseState.loading) return;
   browseState.loading = true;
   els.browseMore.disabled = true;
@@ -667,10 +667,13 @@ async function loadBrowse(reset = false, { skipCache = false } = {}) {
       }
     }
     browseState.page = 1;
-    browseState.items = [];
-    browseState.total = 0;
-    renderBrowseStatus('');
-    els.browseList.innerHTML = browseSkeletonHTML();
+    // silent：stale-while-revalidate 静默刷新，不清空已显示的旧数据、不闪骨架屏
+    if (!silent) {
+      browseState.items = [];
+      browseState.total = 0;
+      renderBrowseStatus('');
+      els.browseList.innerHTML = browseSkeletonHTML();
+    }
   } else {
     els.browseMore.textContent = '加载中...';
   }
@@ -710,10 +713,11 @@ async function loadBrowse(reset = false, { skipCache = false } = {}) {
 
 let browseCategories = [];
 
-// 打开浏览视图：缓存命中直接渲染（含分类），否则先拉分类再拉列表（保证缓存带分类）
+// 打开浏览视图：缓存存在即先渲染（含分类），过期缓存后台静默刷新，
+// 无缓存才走完整拉取（先分类后列表，保证缓存带分类）。
 async function loadBrowseView() {
   const cache = await readBrowseCache();
-  if (cache && cache.signature === browseSignature() && isBrowseCacheFresh(cache)) {
+  if (cache && cache.signature === browseSignature()) {
     browseState.total = cache.total;
     browseState.items = cache.items;
     browseState.page = cache.page || 2;
@@ -721,6 +725,11 @@ async function loadBrowseView() {
     renderBrowseList();
     renderCategories();
     updateBrowseMore();
+    if (!isBrowseCacheFresh(cache)) {
+      // stale-while-revalidate：先显示旧数据，后台静默刷新
+      loadCategories().catch(() => {});
+      loadBrowse(true, { skipCache: true, silent: true }).catch(() => {});
+    }
     return;
   }
   await loadCategories();
