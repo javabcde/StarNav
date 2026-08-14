@@ -31,24 +31,37 @@ async function apiFetch(path, options = {}) {
   const token = String(els.token.value || '').trim();
   if (!baseUrl) throw new Error('请先填写 StarNav 地址');
 
-  const res = await fetch(`${baseUrl}${path}`, {
-    ...options,
-    headers: {
-      ...authHeaders(token),
-      ...(options.headers || {}),
-    },
-  });
-
-  const text = await res.text();
-  let data = null;
+  // 10s 超时：服务端/网络抖动时不让请求无限挂起（"处理中"卡死）
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
   try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = { raw: text };
-  }
+    const res = await fetch(`${baseUrl}${path}`, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        ...authHeaders(token),
+        ...(options.headers || {}),
+      },
+    });
 
-  if (!res.ok) throw new Error(data?.message || data?.error || `请求失败：HTTP ${res.status}`);
-  return data;
+    const text = await res.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = { raw: text };
+    }
+
+    if (!res.ok) throw new Error(data?.message || data?.error || `请求失败：HTTP ${res.status}`);
+    return data;
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('连接超时（10 秒），请检查网络或服务端状态');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function resolveUrl(baseUrl, value) {
@@ -169,14 +182,39 @@ async function saveOptions({ silent = false } = {}) {
 }
 
 async function testConnection() {
-  // saveOptions 内部已同步图标（含下载），此处不再重复；
-  // discovery 与 check-duplicate 相互独立，并行发起省一次串行往返
-  const { iconSynced } = await saveOptions({ silent: true });
-  const [discovery] = await Promise.all([
+  // 配置先落盘（纯本地，无网络等待）
+  const baseUrl = normalizeBaseUrl(els.baseUrl.value);
+  const token = String(els.token.value || '').trim();
+  const defaultCategory = String(els.defaultCategory.value || '').trim();
+  const defaultTags = String(els.defaultTags.value || '').trim();
+  if (!baseUrl || !/^https?:\/\//i.test(baseUrl)) {
+    throw new Error('请填写有效的 StarNav 地址，例如 https://nav.example.com');
+  }
+  if (!token) {
+    throw new Error('请填写 Bearer Token');
+  }
+  await chrome.storage.sync.set({
+    baseUrl,
+    token,
+    defaultCategory,
+    defaultTags,
+    browseCacheMinutes: Number(els.browseCacheMinutes?.value != null ? els.browseCacheMinutes.value : 5),
+  });
+
+  // 三个只读接口并行（各带 10s 超时），最快路径 = 最慢的一个接口
+  const [settings, discovery] = await Promise.all([
+    apiFetch('/api/settings/public', { headers: {} }),
     apiFetch('/api/discovery'),
     apiFetch('/api/sites/check-duplicate?url=' + encodeURIComponent('https://example.com')),
   ]);
-  setStatus(`连接成功：${discovery?.name || 'StarNav'}\nToken 可访问第三方写入辅助接口。\n插件图标：${iconSynced ? '已同步站点图标' : '使用默认图标'}`, 'success');
+
+  // 站点名落盘（popup 显示用）；图标同步后台进行，失败静默，不阻塞结果
+  const siteName = settings?.data?.siteName || discovery?.name || 'StarNav';
+  const iconUrl = resolveUrl(baseUrl, settings?.data?.siteIcon || settings?.data?.icon || '/pwa-icon.svg');
+  await chrome.storage.sync.set({ siteName, siteIcon: iconUrl });
+  setExtensionIconFromUrl(iconUrl).catch(() => {});
+
+  setStatus(`连接成功：${siteName}\nToken 可访问第三方写入辅助接口。\n插件图标：${iconUrl ? '后台同步中' : '使用默认图标'}`, 'success');
 }
 
 async function refreshMetadata() {
