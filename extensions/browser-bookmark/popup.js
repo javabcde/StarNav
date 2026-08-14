@@ -870,11 +870,14 @@ function renderCategories() {
     const isChild = cat.level > 0;
     const hasChildren = hasChildrenOf(cats, i);
     const expanded = expandedCategories.has(cat.name);
-    const childPrefix = isChild ? '\u3000'.repeat(cat.level) + '└ ' : '';
+    const indent = isChild ? `${16 * cat.level}px` : '0';
 
-    html += `<button type="button" class="browse-cat${isActive ? ' active' : ''}${isChild ? ' browse-cat-child' : ''}" data-cat="${escapeHTML(cat.name)}">${childPrefix}${escapeHTML(cat.name || '全部')}</button>`;
+    const catBtn = `<button type="button" class="browse-cat${isActive ? ' active' : ''}${isChild ? ' browse-cat-child' : ''}" data-cat="${escapeHTML(cat.name)}" style="margin-left:${indent}">${escapeHTML(cat.name || '全部')}</button>`;
     if (hasChildren) {
-      html += `<button type="button" class="browse-cat-toggle" data-expand="${escapeHTML(cat.name)}" title="${expanded ? '收起子分类' : '展开子分类'}">${expanded ? '▾' : '▸'}</button>`;
+      // 父分类：名称按钮 + 展开切换 同排；子分类展开后在下方纵向缩进排列
+      html += `<div class="browse-cat-row">${catBtn}<button type="button" class="browse-cat-toggle" data-expand="${escapeHTML(cat.name)}" title="${expanded ? '收起子分类' : '展开子分类'}">${expanded ? '▾' : '▸'}</button></div>`;
+    } else {
+      html += catBtn;
     }
   }
   els.browseCats.innerHTML = html;
