@@ -862,11 +862,13 @@ function renderCategoryRow(node) {
   return `<div class="browse-cat-row">${catBtn}<button type="button" class="browse-cat-toggle" data-expand="${escapeHTML(node.name)}" title="${expanded ? '收起子分类' : '展开子分类'}">${expanded ? '▾' : '▸'}</button></div>`;
 }
 
-// 收集所有展开节点的子分类到子区块（横向 wrap + 层级缩进，避免纵向长列）
-function collectExpandedChildren(nodes, out, level) {
-  for (const node of nodes) {
+// 收集展开节点的子分类，按父分类分组（每组横向 wrap，组间不混排）
+function collectCategoryGroups(tree, out) {
+  for (const node of tree) {
     if (!node.children.length || !expandedCategories.has(node.name)) continue;
-    for (const child of node.children) pushChildCategory(child, out, level);
+    const items = [];
+    for (const child of node.children) pushChildCategory(child, items, 0);
+    out.push({ name: node.name, items });
   }
 }
 
@@ -895,10 +897,15 @@ function renderCategories() {
 
   els.browseCats.innerHTML = tree.map((node) => renderCategoryRow(node)).join('');
 
-  const childrenHtml = [];
-  collectExpandedChildren(tree, childrenHtml, 0);
-  els.browseCatChildren.innerHTML = childrenHtml.join('');
-  els.browseCatChildren.style.display = childrenHtml.length ? 'flex' : 'none';
+  const groups = [];
+  collectCategoryGroups(tree, groups);
+  els.browseCatChildren.innerHTML = groups.map((group) => `
+    <div class="browse-cat-group">
+      <div class="browse-cat-group-label">${FOLDER_ICON_SVG}${escapeHTML(group.name)}</div>
+      <div class="browse-cat-group-items">${group.items.join('')}</div>
+    </div>
+  `).join('');
+  els.browseCatChildren.style.display = groups.length ? 'block' : 'none';
 
   const bind = (root) => {
     for (const btn of root.querySelectorAll('.browse-cat')) {
