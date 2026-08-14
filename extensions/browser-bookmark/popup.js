@@ -896,6 +896,9 @@ function restoreBrowseView() {
 
 // 当前展开的分类名集合（点父分类旁的 ▸/▾ 切换；选中子分类时祖先自动展开）
 let expandedCategories = new Set();
+// 手动收起标志：用户点 ▾ 收起后，本次会话内不再自动注入祖先链
+// （否则筛选子分类时收起父分类会被 injectAncestors 立即展开）
+let suppressAncestorInjection = false;
 
 // 祖先收集 / 树构建 / 分组收集见 popup-logic.js（BrowseLogic）
 
@@ -925,8 +928,11 @@ function renderCategories() {
   const tree = BrowseLogic.buildCategoryTree(flat);
 
   // 当前筛选分类若是子分类，且用户没有手动展开任何父分类时，
-  // 展开其祖先链保证按钮可见；用户手动展开后尊重手风琴（只显示一个）
-  expandedCategories = BrowseLogic.injectAncestors(expandedCategories, browseState.catelog, flat);
+  // 展开其祖先链保证按钮可见；用户手动展开后尊重手风琴（只显示一个）；
+  // 手动收起后抑制注入（见 suppressAncestorInjection）
+  if (!suppressAncestorInjection) {
+    expandedCategories = BrowseLogic.injectAncestors(expandedCategories, browseState.catelog, flat);
+  }
 
   els.browseCats.innerHTML = tree.map((node) => renderCategoryRow(node)).join('');
 
@@ -959,7 +965,11 @@ function renderCategories() {
         const name = btn.dataset.expand;
         // 手风琴：同一时间只展开一个父分类，点另一个时自动收起前一个；
         // 再点当前展开的则收起（回到仅顶层）——逻辑见 popup-logic.js
+        const hadExpansion = expandedCategories.size > 0;
         expandedCategories = BrowseLogic.toggleCategory(expandedCategories, name);
+        // 手动收起（非空→空）后抑制祖先链自动注入：否则筛选子分类时
+        // 收起父分类会被 injectAncestors 立即重新展开，收不回去
+        suppressAncestorInjection = hadExpansion && expandedCategories.size === 0;
         renderCategories();
       });
     }
