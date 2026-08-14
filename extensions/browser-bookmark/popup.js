@@ -820,23 +820,6 @@ async function loadCategories() {
 // 当前展开的分类名集合（点父分类旁的 ▸/▾ 切换；选中子分类时祖先自动展开）
 const expandedCategories = new Set();
 
-// flat 列表中第 i 个分类的父分类名（向前找最近 level-1 节点）；无则 ''
-function parentNameOf(cats, i) {
-  for (let j = i - 1; j >= 0; j -= 1) {
-    if (cats[j].level === cats[i].level - 1) return cats[j].name;
-  }
-  return '';
-}
-
-// flat 列表中第 i 个分类是否含子分类（其后存在 level+1 节点且中间无同层或更浅节点）
-function hasChildrenOf(cats, i) {
-  for (let j = i + 1; j < cats.length; j += 1) {
-    if (cats[j].level <= cats[i].level) return false;
-    if (cats[j].level === cats[i].level + 1) return true;
-  }
-  return false;
-}
-
 // 收集 flat 列表中某分类的全部祖先名（用于自动展开）
 function ancestorsOf(cats, name) {
   const idx = cats.findIndex((c) => c.name === name);
@@ -853,34 +836,46 @@ function ancestorsOf(cats, name) {
   return out;
 }
 
+// 扁平 [{name, level}] 构建树（用栈：level n 挂到最近的 level n-1 节点下）
+function buildCategoryTree(flat) {
+  const root = [];
+  const stack = [{ name: '', level: -1, children: root }];
+  for (const c of flat) {
+    while (stack.length && stack[stack.length - 1].level >= c.level) stack.pop();
+    const node = { name: c.name, level: c.level, children: [] };
+    stack[stack.length - 1].children.push(node);
+    stack.push(node);
+  }
+  return root;
+}
+
+const FOLDER_ICON_SVG = '<svg class="cat-folder-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M2 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z"/></svg>';
+
+// 递归渲染分类节点：顶层节点横向排布（flex-wrap），展开的子分类在
+// 节点下方纵向缩进排列，全部带文件夹图标与书签卡片区分
+function renderCategoryNode(node, level) {
+  const isActive = browseState.catelog === node.name;
+  const hasChildren = node.children.length > 0;
+  const expanded = expandedCategories.has(node.name);
+  const catBtn = `<button type="button" class="browse-cat${isActive ? ' active' : ''}${level > 0 ? ' browse-cat-child' : ''}" data-cat="${escapeHTML(node.name)}">${FOLDER_ICON_SVG}${escapeHTML(node.name)}</button>`;
+  const row = hasChildren
+    ? `<div class="browse-cat-row">${catBtn}<button type="button" class="browse-cat-toggle" data-expand="${escapeHTML(node.name)}" title="${expanded ? '收起子分类' : '展开子分类'}">${expanded ? '▾' : '▸'}</button></div>`
+    : catBtn;
+  const childrenHtml = (hasChildren && expanded)
+    ? `<div class="cat-node-children" style="margin-left:${(level + 1) * 16}px">${node.children.map((child) => renderCategoryNode(child, level + 1)).join('')}</div>`
+    : '';
+  return `<div class="cat-node">${row}${childrenHtml}</div>`;
+}
+
 function renderCategories() {
-  const cats = [{ name: '', level: 0 }, ...browseCategories];
+  const tree = buildCategoryTree([{ name: '', level: 0 }, ...browseCategories]);
 
   // 当前筛选分类若是子分类，展开其祖先链，保证按钮可见
   if (browseState.catelog) {
-    for (const name of ancestorsOf(cats, browseState.catelog)) expandedCategories.add(name);
+    for (const name of ancestorsOf([{ name: '', level: 0 }, ...browseCategories], browseState.catelog)) expandedCategories.add(name);
   }
 
-  let html = '';
-  for (let i = 0; i < cats.length; i += 1) {
-    const cat = cats[i];
-    if (cat.level > 0 && !expandedCategories.has(parentNameOf(cats, i))) continue; // 父未展开 → 隐藏子
-
-    const isActive = browseState.catelog === cat.name;
-    const isChild = cat.level > 0;
-    const hasChildren = hasChildrenOf(cats, i);
-    const expanded = expandedCategories.has(cat.name);
-    const indent = isChild ? `${16 * cat.level}px` : '0';
-
-    const catBtn = `<button type="button" class="browse-cat${isActive ? ' active' : ''}${isChild ? ' browse-cat-child' : ''}" data-cat="${escapeHTML(cat.name)}" style="margin-left:${indent}">${escapeHTML(cat.name || '全部')}</button>`;
-    if (hasChildren) {
-      // 父分类：名称按钮 + 展开切换 同排；子分类展开后在下方纵向缩进排列
-      html += `<div class="browse-cat-row">${catBtn}<button type="button" class="browse-cat-toggle" data-expand="${escapeHTML(cat.name)}" title="${expanded ? '收起子分类' : '展开子分类'}">${expanded ? '▾' : '▸'}</button></div>`;
-    } else {
-      html += catBtn;
-    }
-  }
-  els.browseCats.innerHTML = html;
+  els.browseCats.innerHTML = tree.map((node) => renderCategoryNode(node, 0)).join('');
 
   for (const btn of els.browseCats.querySelectorAll('.browse-cat')) {
     btn.addEventListener('click', () => {

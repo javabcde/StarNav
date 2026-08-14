@@ -313,10 +313,23 @@
 
     .browse-cats {
       display: flex;
-      flex-direction: column;
-      gap: 5px;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      gap: 6px;
       padding-bottom: 6px;
       margin-bottom: 12px;
+    }
+
+    .cat-node {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .cat-node-children {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
     }
 
     .browse-cat-row {
@@ -326,8 +339,6 @@
     }
 
     .browse-cat {
-      flex: 1;
-      min-width: 0;
       padding: 6px 12px;
       border: 1px solid var(--border);
       border-radius: 10px;
@@ -336,9 +347,6 @@
       font-size: 12px;
       font-weight: 800;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      text-align: left;
     }
 
     .browse-cat:hover {
@@ -349,7 +357,18 @@
     .browse-cat-child {
       opacity: .85;
       font-size: 12px;
-      margin-left: 16px;
+    }
+
+    .cat-folder-icon {
+      width: 12px;
+      height: 12px;
+      margin-right: 5px;
+      vertical-align: -1px;
+      color: var(--muted);
+    }
+
+    .browse-cat.active .cat-folder-icon {
+      color: #fff;
     }
 
     .browse-cat-toggle {
