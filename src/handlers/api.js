@@ -254,7 +254,8 @@ export async function handleApiRequest(request, env, ctx) {
       }
 
       const space = url.searchParams.get('space') || '';
-      const result = await getSites(env, { page, pageSize, catalog, keyword, tag, sort, health, space, includePrivate: privateAccess, adminAuthed, privateUnlocked: privateAccess });
+      const all = url.searchParams.get('all') === '1';
+      const result = await getSites(env, { page, pageSize, catalog, keyword, tag, sort, health, space, all, includePrivate: privateAccess, adminAuthed, privateUnlocked: privateAccess });
       return jsonResponse({ code: 200, ...result });
     }
     if (isSitesCollectionPath && method === 'POST') {

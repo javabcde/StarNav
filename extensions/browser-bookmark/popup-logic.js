@@ -4,9 +4,9 @@
 (function (global) {
   'use strict';
 
-  // 缓存签名：不含 page（缓存代表第一页视图，page 单独恢复）
-  function browseSignature(view) {
-    return [view.keyword, view.catelog, view.sort].join('|');
+  // 新格式全量缓存识别（旧格式/未知格式一律视为无缓存）
+  function isFullBrowseCache(cache) {
+    return Boolean(cache && cache.kind === 'full' && Array.isArray(cache.items));
   }
 
   // 缓存是否新鲜：minutes <= 0 视为不缓存（总是拉取）
@@ -16,21 +16,66 @@
   }
 
   /**
-   * 打开浏览视图的决策矩阵（f731227 起的行为契约）：
-   * - render：有缓存（fetchedAt 存在）即渲染，无缓存 false（走骨架屏拉取）
-   * - refresh：签名不同（换视图）或缓存过期 → 后台静默拉取当前视图替换
-   * @param {{fetchedAt?: number, signature?: string}|null} cache
-   * @param {{keyword: string, catelog: string, sort: string}} view
+   * 打开浏览视图的决策（全量缓存语义）：
+   * - 无缓存 / 旧格式（非 kind==='full'）→ render:false（初始化态拉全量重建）
+   * - 新格式新鲜 → render + 零请求
+   * - 新格式过期 → render + 后台刷新
+   * @param {{kind?: string, fetchedAt?: number}|null} cache
    * @param {number} minutes 缓存 TTL 分钟数
    * @param {number} [now]
    * @returns {{render: boolean, refresh: boolean}}
    */
-  function decideBrowseView(cache, view, minutes, now) {
-    if (!cache || !cache.fetchedAt) return { render: false, refresh: false };
+  function decideBrowseView(cache, minutes, now) {
+    if (!isFullBrowseCache(cache)) return { render: false, refresh: false };
     return {
       render: true,
-      refresh: cache.signature !== browseSignature(view) || !isBrowseCacheFresh(cache, minutes, now),
+      refresh: !isBrowseCacheFresh(cache, minutes, now),
     };
+  }
+
+  /**
+   * 客户端过滤全量书签（仅对 kind==='full' 缓存生效；非 full 不得对部分数据过滤）。
+   * @param {Array<object>} items 全量书签
+   * @param {{keyword: string, catelog: string, sort: string}} view 当前视图
+   * @param {Set<string>|null} catelogNames 当前分类及其全部子孙名集合（null = 不过滤分类）
+   * @returns {Array<object>} 过滤 + 排序后的全量结果（未分页）
+   */
+  function filterBrowseItems(items, view, catelogNames) {
+    const kw = String(view.keyword || '').trim().toLowerCase();
+    let result = items;
+    if (kw) {
+      result = result.filter((s) =>
+        String(s.name || '').toLowerCase().includes(kw)
+        || String(s.url || '').toLowerCase().includes(kw)
+        || String(s.catelog || '').toLowerCase().includes(kw)
+      );
+    }
+    if (view.catelog && catelogNames) {
+      result = result.filter((s) => catelogNames.has(s.catelog));
+    }
+    if (view.sort === 'hits') {
+      result = [...result].sort((a, b) => (Number(b.hits) || 0) - (Number(a.hits) || 0));
+    } else if (view.sort === 'last_visit') {
+      result = [...result].sort((a, b) =>
+        String(b.last_visit_time || b.create_time || '').localeCompare(String(a.last_visit_time || a.create_time || ''))
+      );
+    } else if (view.sort === 'name') {
+      result = [...result].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    }
+    return result;
+  }
+
+  /**
+   * 客户端分页切片。
+   * @param {Array<object>} items 过滤排序后的结果
+   * @param {number} page 从 1 开始
+   * @param {number} [pageSize=30]
+   * @returns {Array<object>}
+   */
+  function paginateItems(items, page, pageSize) {
+    const size = Math.max(1, Number(pageSize) || 30);
+    const start = (Math.max(1, Number(page) || 1) - 1) * size;
+    return items.slice(start, start + size);
   }
 
   /**
@@ -151,9 +196,11 @@
   }
 
   const BrowseLogic = {
-    browseSignature,
+    isFullBrowseCache,
     isBrowseCacheFresh,
     decideBrowseView,
+    filterBrowseItems,
+    paginateItems,
     toggleCategory,
     injectAncestors,
     ancestorsOf,

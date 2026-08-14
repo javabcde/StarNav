@@ -12,9 +12,11 @@ vm.runInThisContext(logicSource);
 const BrowseLogic = globalThis.BrowseLogic;
 
 const {
-  browseSignature,
+  isFullBrowseCache,
   isBrowseCacheFresh,
   decideBrowseView,
+  filterBrowseItems,
+  paginateItems,
   toggleCategory,
   injectAncestors,
   ancestorsOf,
@@ -26,43 +28,101 @@ const {
 
 const MINUTES = 12 * 60; // 12h
 const NOW = Date.now();
-const view = { keyword: '', catelog: '', sort: '' };
 
-// ── 缓存决策矩阵（f731227 契约）─────────────────────────────
+function fullCache(overrides = {}) {
+  return {
+    kind: 'full',
+    fetchedAt: NOW,
+    ttlMinutes: MINUTES,
+    items: [{ id: 1, name: 'A' }],
+    total: 1,
+    categories: [],
+    ...overrides,
+  };
+}
 
-test('decideBrowseView：无缓存 → 不渲染（走骨架屏拉取）', () => {
-  assert.deepEqual(decideBrowseView(null, view, MINUTES, NOW), { render: false, refresh: false });
-  assert.deepEqual(decideBrowseView({}, view, MINUTES, NOW), { render: false, refresh: false });
+// ── 缓存识别与决策矩阵（全量语义）──────────────────────────
+
+test('isFullBrowseCache：仅 kind==="full" 且 items 为数组', () => {
+  assert.equal(isFullBrowseCache(fullCache()), true);
+  assert.equal(isFullBrowseCache({ kind: 'full' }), false, '缺 items');
+  assert.equal(isFullBrowseCache({ kind: 'full', items: 'x' }), false);
+  assert.equal(isFullBrowseCache({ kind: 'legacy', items: [] }), false, '旧格式不算 full');
+  assert.equal(isFullBrowseCache({ fetchedAt: NOW, items: [] }), false, '缺 kind 不算 full');
+  assert.equal(isFullBrowseCache(null), false);
 });
 
-test('decideBrowseView：新鲜 + 同签名 → 渲染且不刷新（零请求）', () => {
-  const cache = { fetchedAt: NOW, signature: browseSignature(view), items: [{ id: 1 }] };
-  assert.deepEqual(decideBrowseView(cache, view, MINUTES, NOW), { render: true, refresh: false });
+test('decideBrowseView：新格式新鲜 → 渲染且零请求', () => {
+  assert.deepEqual(decideBrowseView(fullCache(), MINUTES, NOW), { render: true, refresh: false });
 });
 
-test('decideBrowseView：新鲜 + 异签名（换视图）→ 渲染 + 后台刷新', () => {
-  const otherView = { keyword: '', catelog: '工具', sort: '' };
-  const cache = { fetchedAt: NOW, signature: browseSignature(otherView), items: [{ id: 1 }] };
-  assert.deepEqual(decideBrowseView(cache, view, MINUTES, NOW), { render: true, refresh: true });
+test('decideBrowseView：新格式过期 → 渲染 + 后台刷新', () => {
+  const cache = fullCache({ fetchedAt: NOW - 13 * 3600 * 1000 });
+  assert.deepEqual(decideBrowseView(cache, MINUTES, NOW), { render: true, refresh: true });
 });
 
-test('decideBrowseView：过期（任意签名）→ 渲染 + 后台刷新', () => {
-  const stale = NOW - 13 * 3600 * 1000;
-  const cache = { fetchedAt: stale, signature: browseSignature(view), items: [{ id: 1 }] };
-  assert.deepEqual(decideBrowseView(cache, view, MINUTES, NOW), { render: true, refresh: true });
+test('decideBrowseView：无缓存 / 旧格式 → 不渲染（初始化态拉全量重建）', () => {
+  assert.deepEqual(decideBrowseView(null, MINUTES, NOW), { render: false, refresh: false });
+  // 旧格式（含 signature 的单视图缓存）一律视为无效
+  const legacy = { signature: '||', fetchedAt: NOW, items: [{ id: 1 }], total: 1, page: 2 };
+  assert.deepEqual(decideBrowseView(legacy, MINUTES, NOW), { render: false, refresh: false });
 });
 
 test('decideBrowseView：12h 整边界 → 视为过期（严格小于）', () => {
-  const exactly = NOW - 12 * 3600 * 1000;
-  const cache = { fetchedAt: exactly, signature: browseSignature(view), items: [{ id: 1 }] };
+  const cache = fullCache({ fetchedAt: NOW - 12 * 3600 * 1000 });
   assert.equal(isBrowseCacheFresh(cache, MINUTES, NOW), false);
-  assert.equal(decideBrowseView(cache, view, MINUTES, NOW).refresh, true);
+  assert.equal(decideBrowseView(cache, MINUTES, NOW).refresh, true);
 });
 
 test('decideBrowseView：minutes <= 0（不缓存）→ 总是刷新', () => {
-  const cache = { fetchedAt: NOW, signature: browseSignature(view), items: [{ id: 1 }] };
-  assert.equal(decideBrowseView(cache, view, 0, NOW).refresh, true);
-  assert.equal(isBrowseCacheFresh(cache, 0, NOW), false);
+  assert.equal(decideBrowseView(fullCache(), 0, NOW).refresh, true);
+});
+
+// ── 客户端过滤（filterBrowseItems）────────────────────────
+
+const SITES = [
+  { id: 1, name: '星空图床', url: 'https://xktc.example.com', catelog: '图床', hits: 10, last_visit_time: '2026-08-10 10:00:00', create_time: '2026-08-01 10:00:00' },
+  { id: 2, name: 'AI 工具箱', url: 'https://ai.example.com', catelog: '工具', hits: 3, last_visit_time: '', create_time: '2026-08-02 10:00:00' },
+  { id: 3, name: '前端文档', url: 'https://front.example.com', catelog: '前端', hits: 7, last_visit_time: '2026-08-12 10:00:00', create_time: '2026-08-03 10:00:00' },
+];
+
+test('filterBrowseItems：keyword 子串匹配（大小写不敏感，覆盖 name/url/catelog）', () => {
+  assert.deepEqual(filterBrowseItems(SITES, { keyword: '图床', catelog: '', sort: '' }, null).map((s) => s.id), [1]);
+  assert.deepEqual(filterBrowseItems(SITES, { keyword: 'XKTC', catelog: '', sort: '' }, null).map((s) => s.id), [1], 'URL 大小写不敏感');
+  assert.deepEqual(filterBrowseItems(SITES, { keyword: '工具', catelog: '', sort: '' }, null).map((s) => s.id), [2]);
+  assert.equal(filterBrowseItems(SITES, { keyword: '不存在的词', catelog: '', sort: '' }, null).length, 0);
+  assert.equal(filterBrowseItems(SITES, { keyword: '', catelog: '', sort: '' }, null).length, 3, '空关键词不过滤');
+});
+
+test('filterBrowseItems：分类含子孙集合过滤', () => {
+  const toolAndKids = new Set(['工具', '图床', '开发', '前端']);
+  assert.deepEqual(filterBrowseItems(SITES, { keyword: '', catelog: '工具', sort: '' }, toolAndKids).map((s) => s.id).sort(), [1, 2, 3]);
+  assert.deepEqual(filterBrowseItems(SITES, { keyword: '', catelog: '工具', sort: '' }, new Set(['工具'])).map((s) => s.id), [2]);
+  assert.equal(filterBrowseItems(SITES, { keyword: '', catelog: '', sort: '' }, null).length, 3, '无分类不过滤');
+});
+
+test('filterBrowseItems：排序（hits / last_visit / name / 默认保序）', () => {
+  assert.deepEqual(filterBrowseItems(SITES, { keyword: '', catelog: '', sort: 'hits' }, null).map((s) => s.id), [1, 3, 2]);
+  assert.deepEqual(filterBrowseItems(SITES, { keyword: '', catelog: '', sort: 'last_visit' }, null).map((s) => s.id), [3, 1, 2]);
+  assert.deepEqual(filterBrowseItems(SITES, { keyword: '', catelog: '', sort: 'name' }, null).map((s) => s.id), [2, 3, 1], '名称升序');
+  assert.deepEqual(filterBrowseItems(SITES, { keyword: '', catelog: '', sort: '' }, null).map((s) => s.id), [1, 2, 3], '默认保序');
+});
+
+test('filterBrowseItems：不修改入参数组', () => {
+  const copy = [...SITES];
+  filterBrowseItems(SITES, { keyword: 'x', catelog: '', sort: 'hits' }, null);
+  assert.deepEqual(SITES, copy);
+});
+
+// ── 客户端分页（paginateItems）────────────────────────────
+
+test('paginateItems：切片与边界', () => {
+  const items = Array.from({ length: 75 }, (_, i) => i);
+  assert.deepEqual(paginateItems(items, 1, 30), items.slice(0, 30));
+  assert.deepEqual(paginateItems(items, 3, 30), items.slice(60, 90), '末页越界返回剩余');
+  assert.deepEqual(paginateItems(items, 0, 30), items.slice(0, 30), 'page 0 按 1 处理');
+  assert.deepEqual(paginateItems(items, 1, 0), items.slice(0, 30), 'pageSize 0 按默认 30');
+  assert.deepEqual(paginateItems(items, 99, 30), [], '超范围返回空');
 });
 
 // ── 手风琴状态机（1722632 / 15cf3e8 契约）──────────────────
@@ -168,33 +228,23 @@ test('collectCategoryGroups：按父分组不混排，嵌套展开进同组', ()
     ]},
   ];
 
-  // 只展开 A → 只有 A 组
   let groups = collectCategoryGroups(tree, new Set(['A']), '');
   assert.deepEqual(groups.map((g) => g.name), ['A']);
   assert.deepEqual(groups[0].items.map((i) => i.name), ['a1', 'a2']);
 
-  // 展开 A + B → 两个独立组
   groups = collectCategoryGroups(tree, new Set(['A', 'B']), '');
   assert.deepEqual(groups.map((g) => g.name), ['A', 'B']);
   assert.deepEqual(groups[1].items.map((i) => i.name), ['b1', 'b2']);
   assert.equal(groups[1].items[0].hasChildren, true);
   assert.equal(groups[1].items[0].expanded, false, 'b1 未展开');
 
-  // A + B + 展开 b1 → b1x 进 B 组（level 1）
   groups = collectCategoryGroups(tree, new Set(['A', 'B', 'b1']), '');
   const b1 = groups[1].items[0];
   assert.equal(b1.expanded, true);
   assert.deepEqual(groups[1].items.map((i) => i.name), ['b1', 'b1x', 'b2']);
   assert.equal(groups[1].items[1].level, 1);
 
-  // active 标记
   groups = collectCategoryGroups(tree, new Set(['A']), 'a2');
   assert.equal(groups[0].items[1].active, true);
   assert.equal(groups[0].items[0].active, false);
-});
-
-test('browseSignature：视图维度稳定且区分', () => {
-  assert.equal(browseSignature({ keyword: '', catelog: '', sort: '' }), '||');
-  assert.equal(browseSignature({ keyword: '', catelog: '工具', sort: '' }), '|工具|');
-  assert.notEqual(browseSignature({ keyword: 'x', catelog: '', sort: '' }), '||');
 });

@@ -436,7 +436,7 @@ function normalizeSitePayload(config) {
  * @param {boolean} [options.privateUnlocked=options.includePrivate] 是否已解锁私密书签。
  * @returns {Promise<{data: SiteRecord[], total: number, page: number, pageSize: number}>}
  */
-export async function getSites(env, { page = 1, pageSize = 10, catalog = '', keyword = '', tag = '', sort = '', health = '', space = '', space_id = null, includePrivate = true, adminAuthed = false, privateUnlocked = includePrivate } = {}) {
+export async function getSites(env, { page = 1, pageSize = 10, catalog = '', keyword = '', tag = '', sort = '', health = '', space = '', space_id = null, all = false, includePrivate = true, adminAuthed = false, privateUnlocked = includePrivate } = {}) {
   const safePage = Math.max(1, Number(page) || 1);
   const safePageSize = Math.max(1, Math.min(100, Number(pageSize) || 10));
   const offset = (safePage - 1) * safePageSize;
@@ -519,14 +519,16 @@ export async function getSites(env, { page = 1, pageSize = 10, catalog = '', key
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const fromSql = 'FROM sites s LEFT JOIN categories c ON c.id = s.category_id';
   const selectSql = `SELECT ${SITE_SELECT_COLUMNS}`;
+  const limitSql = all ? '' : 'LIMIT ? OFFSET ?';
+  const limitBinds = all ? [] : [safePageSize, offset];
   try {
     const { results } = await env.NAV_DB.prepare(`
       ${selectSql}
       ${fromSql}
       ${whereSql}
       ${orderSql}
-      LIMIT ? OFFSET ?
-    `).bind(...binds, safePageSize, offset).all();
+      ${limitSql}
+    `).bind(...binds, ...limitBinds).all();
 
     const countResult = await env.NAV_DB.prepare(`
       SELECT COUNT(*) AS total
@@ -566,6 +568,9 @@ export async function getSites(env, { page = 1, pageSize = 10, catalog = '', key
 
   const fallbackWhereSql = fallbackWhere.length ? `WHERE ${fallbackWhere.join(' AND ')}` : '';
 
+  const fallbackLimitSql = all ? '' : 'LIMIT ? OFFSET ?';
+  const fallbackLimitBinds = all ? [] : [safePageSize, offset];
+
   try {
     const { results } = await env.NAV_DB.prepare(`
       SELECT
@@ -591,8 +596,8 @@ export async function getSites(env, { page = 1, pageSize = 10, catalog = '', key
       FROM sites s
       ${fallbackWhereSql}
       ORDER BY datetime(s.create_time) DESC, s.id DESC
-      LIMIT ? OFFSET ?
-    `).bind(...fallbackBinds, safePageSize, offset).all();
+      ${fallbackLimitSql}
+    `).bind(...fallbackBinds, ...fallbackLimitBinds).all();
 
     const countResult = await env.NAV_DB.prepare(`
       SELECT COUNT(*) AS total
