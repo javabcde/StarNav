@@ -10,6 +10,7 @@ import {
   checkSiteHealth,
   createSite,
   deleteSite,
+  ensureSiteFavicon,
   exportConfig,
   fetchSitePreview,
   findDuplicateSite,
@@ -117,6 +118,19 @@ export async function handleApiRequest(request, env, ctx) {
       if (!siteUrl) return errorResponse('URL parameter is required', 400);
       const favicon = await getFavicon(siteUrl);
       return jsonResponse({ code: 200, favicon: favicon || '' });
+    }
+
+    // 图标自动补全（插件站内浏览点击上报）：token（scope=write）或管理员会话可调；
+    // 幂等——有图标/已标记失败直接跳过，返回 { updated, favicon, reason }
+    if (method === 'POST' && segments.length === 3 && segments[0] === 'site' && segments[2] === 'ensure-favicon') {
+      const unauthorized = await requireAdmin(request, env, { allowApiToken: true, scope: 'write' });
+      if (unauthorized) return unauthorized;
+      const siteId = Number(segments[1]);
+      if (!Number.isInteger(siteId) || siteId <= 0) return errorResponse('Invalid site id', 400);
+      const site = await getSite(env, siteId);
+      if (!site) return errorResponse('Site not found', 404);
+      const result = await ensureSiteFavicon(env, site);
+      return jsonResponse({ code: 200, data: result });
     }
 
     if (path === '/settings/public' && method === 'GET') {

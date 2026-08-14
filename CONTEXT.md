@@ -26,6 +26,16 @@ _Avoid_: 二级密码、书签密码
 整站锁启用后仍无需解锁即可访问的路由：`/admin` 登录页与登录 POST、PWA 静态资源（manifest / Service Worker / 图标）、`/api/settings/public`。访问其他被挡路由一律 302 到锁页。
 _Avoid_: 例外路由、免锁路由
 
+## 站点属性
+
+**站点图标 (Site Icon)**:
+站点在书签卡片/列表中的 favicon，存储于 `sites.logo` 字段（图标源 URL 字符串）。空值即"无图标"。自动补全与手动批量刷新均只写此字段。站点数据中简称 logo（字段名），术语统一为"站点图标"。
+_Avoid_: icon、favicon
+
+**图标自动补全 (Icon Auto-Fill)**:
+站点无图标时，从点击路径（主站 `/go/:id` 跳转、插件站内浏览点击）触发的一次性后台补全：`getFavicon` 抓取成功则写回 `logo`，抓取失败则以 KV 标记 `favicon:failed:{id}` **永久放弃**——自动路径不再重试，只有手动操作（admin 批量刷新图标、编辑书签）才清标记重置。补全不阻塞跳转/打开，失败静默。
+_Avoid_: 图标刷新、favicon 重试
+
 ## 书签同步
 
 **书签同步 (Bookmark Sync)**:

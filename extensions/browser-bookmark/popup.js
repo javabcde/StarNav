@@ -630,7 +630,7 @@ function renderBrowseItem(item) {
     ? `<img class="browse-logo" src="${escapeHTML(item.logo)}" alt="" loading="lazy" data-letter="${escapeHTML(letter)}" data-color="${color}">`
     : `<span class="browse-logo-placeholder" style="--star-color:${color}"><b>${escapeHTML(letter)}</b><i>✦</i></span>`;
   return `
-    <div class="browse-item" data-url="${escapeHTML(url)}" title="${escapeHTML(url)}">
+    <div class="browse-item" data-id="${escapeHTML(String(item.id ?? ''))}" data-url="${escapeHTML(url)}" title="${escapeHTML(url)}">
       ${logoHtml}
       <div class="browse-item-body">
         <div class="browse-item-title">${escapeHTML(name)}</div>
@@ -669,6 +669,12 @@ function renderBrowseList() {
       // 跃迁反馈：点击闪星芒后打开，避免"点了没反应"的错觉
       itemEl.addEventListener('click', () => {
         if (itemEl.classList.contains('jumping')) return;
+        // 图标自动补全：无图标书签 fire-and-forget 上报 background 补全
+        // （popup 关闭后由 background 接管；有图标/未配置则 background 静默跳过）
+        const siteId = itemEl.dataset.id;
+        if (siteId && !itemEl.querySelector('img.browse-logo')) {
+          chrome.runtime.sendMessage({ type: 'ensure-favicon', siteId }).catch(() => {});
+        }
         itemEl.classList.add('jumping');
         setTimeout(async () => {
           try {

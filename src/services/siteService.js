@@ -1192,6 +1192,51 @@ export async function runScheduledHealthCheck(env, { limit = 30 } = {}) {
   return bulkCheckSiteHealth(env, ids);
 }
 
+export function faviconFailedKey(id) {
+  return `favicon:failed:${id}`;
+}
+
+/**
+ * 幂等补全站点图标（图标自动补全）：仅在无图标且未被标记失败时抓取写回。
+ * - logo 非空 → { updated:false, reason:'has-logo' }
+ * - KV favicon:failed:{id} 存在 → { updated:false, reason:'already-failed' }（永久放弃，仅手动刷新/编辑重置）
+ * - getFavicon 返回空（5 源全失败）→ KV 永久标记 → { updated:false, reason:'no-favicon' }
+ * - 抓取/写入异常 → 不标记，下次点击再试 → { updated:false, reason:'error' }
+ *
+ * 注意：getFavicon 内部已吞掉各源 fetch 异常并返回 ''，此处 catch 兜底的是
+ * KV/D1 写入异常。waitUntil 预算截断时整个 promise 被丢弃，不会误写标记。
+ *
+ * @param {object} env Cloudflare Workers 环境绑定，需包含 `NAV_DB` 与 `NAV_AUTH`。
+ * @param {object} site 站点对象（含 id/url/logo）。
+ * @returns {Promise<{updated: boolean, favicon?: string, reason: string}>}
+ */
+export async function ensureSiteFavicon(env, site) {
+  if (!site) return { updated: false, reason: 'no-site' };
+  if (site.logo) return { updated: false, reason: 'has-logo' };
+
+  const failedKey = faviconFailedKey(site.id);
+  const failed = await env.NAV_AUTH.get(failedKey);
+  if (failed) return { updated: false, reason: 'already-failed' };
+
+  try {
+    const favicon = await getFavicon(site.url);
+    if (!favicon) {
+      // 5 个独立源全失败 ≈ 该站没有可用图标（静态属性），永久放弃自动重试
+      await env.NAV_AUTH.put(failedKey, '1');
+      return { updated: false, reason: 'no-favicon' };
+    }
+    await env.NAV_DB.prepare(`
+      UPDATE sites
+      SET logo = ?, update_time = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(favicon, site.id).run();
+    return { updated: true, favicon, reason: 'filled' };
+  } catch (error) {
+    console.log(`[favicon] ensure failed for site ${site?.id}: ${error?.message || error}`);
+    return { updated: false, reason: 'error' };
+  }
+}
+
 export async function bulkRefreshSiteFavicons(env, ids) {
   const siteIds = normalizeIdList(ids).slice(0, 30);
   if (!siteIds.length) throw new Error('ids must be a non-empty array');
@@ -1207,6 +1252,8 @@ export async function bulkRefreshSiteFavicons(env, ids) {
   const results = [];
 
   for (const siteId of siteIds) {
+    // 手动刷新 = 显式重试：无论成败都清除自动补全的失败标记（重置后点击可再触发）
+    await env.NAV_AUTH.delete(faviconFailedKey(siteId)).catch(() => {});
     const site = siteMap.get(siteId);
     if (!site) {
       results.push({ id: siteId, ok: false, favicon: '', error: 'Site not found' });
@@ -1328,6 +1375,10 @@ export async function updateSite(env, id, config, { force = false } = {}) {
   `).bind(site.name, site.url, site.logo, site.desc, site.catelog, category?.id || null, spaceId, site.visibility, site.sort_order, normalizeDuplicateUrlKey(site.url), id).run();
 
   await setSiteTags(env, id, site.tags);
+
+  // 编辑书签 = 手动操作：清除自动补全的失败标记（重置后点击可再触发）。
+  // 可选链容错无 NAV_AUTH 的测试 env。
+  await env.NAV_AUTH?.delete?.(faviconFailedKey(id)).catch(() => {});
 
   return result;
 }

@@ -1,6 +1,6 @@
 import { isAdminAuthenticated } from '../lib/auth.js';
 import { errorResponse, sanitizeUrl } from '../lib/utils.js';
-import { canAccessSite, getSite, incrementSiteHits } from '../services/siteService.js';
+import { canAccessSite, ensureSiteFavicon, getSite, incrementSiteHits } from '../services/siteService.js';
 import { hasPrivateBookmarkAccess } from '../services/privateBookmarkService.js';
 
 export async function handleGoRequest(request, env, ctx) {
@@ -26,10 +26,14 @@ export async function handleGoRequest(request, env, ctx) {
   const recordHit = incrementSiteHits(env, id).catch((error) => {
     console.log(`[go] failed to increment hits for site ${id}: ${error?.message || error}`);
   });
+  // 图标自动补全：无图标且未标记失败时后台抓取写回，不阻塞跳转
+  const ensureFavicon = (!site.logo ? ensureSiteFavicon(env, site).catch(() => {}) : Promise.resolve());
   if (ctx?.waitUntil) {
     ctx.waitUntil(recordHit);
+    ctx.waitUntil(ensureFavicon);
   } else {
     await recordHit;
+    await ensureFavicon;
   }
 
   const fromCatalog = url.searchParams.get('from_catalog') || '';

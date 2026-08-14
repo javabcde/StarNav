@@ -142,3 +142,59 @@ function showNotification(type, title, message) {
     priority: 2
   });
 }
+
+// 图标自动补全：popup 站内浏览点击无图标书签时上报（fire-and-forget，
+// popup 关闭后由本 background 接管），成功后本地 patch full cache 该条 logo。
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (!message || message.type !== 'ensure-favicon') return; // 非本消息不拦截
+  ensureFaviconForSite(message.siteId)
+    .then(sendResponse)
+    .catch(() => sendResponse({ ok: false, reason: 'unexpected' }));
+  return true; // 异步 sendResponse
+});
+
+async function ensureFaviconForSite(siteId) {
+  const settings = await chrome.storage.sync.get(['baseUrl', 'token']);
+  const baseUrl = settings.baseUrl ? settings.baseUrl.replace(/\/$/, '') : '';
+  const token = settings.token || '';
+  if (!baseUrl || !token || siteId == null) return { ok: false, reason: 'not-configured' };
+
+  // 缓存该条已有图标（可能刚被其他入口补过）→ 省一次请求
+  const cached = await chrome.storage.local.get(BROWSE_CACHE_KEY);
+  const cache = cached[BROWSE_CACHE_KEY];
+  if (cache && cache.kind === 'full' && Array.isArray(cache.items)) {
+    const item = cache.items.find((s) => Number(s.id) === Number(siteId));
+    if (item && item.logo) return { ok: false, reason: 'has-logo' };
+  }
+
+  // 10s 超时（与 options.apiFetch 同策略），失败静默——下次点击再试
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  let result;
+  try {
+    const res = await fetch(`${baseUrl}/api/site/${encodeURIComponent(siteId)}/ensure-favicon`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    const data = await res.json().catch(() => ({}));
+    result = data && data.data;
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!result || !result.updated || !result.favicon) {
+    return { ok: false, reason: result ? result.reason : 'request-failed' };
+  }
+
+  // 本地 patch：只改该条 logo，零额外全量请求；下次打开 popup 直接见图标
+  const fresh = await chrome.storage.local.get(BROWSE_CACHE_KEY);
+  const freshCache = fresh[BROWSE_CACHE_KEY];
+  if (freshCache && freshCache.kind === 'full' && Array.isArray(freshCache.items)) {
+    const target = freshCache.items.find((s) => Number(s.id) === Number(siteId));
+    if (target) {
+      target.logo = result.favicon;
+      await chrome.storage.local.set({ [BROWSE_CACHE_KEY]: freshCache }).catch(() => {});
+    }
+  }
+  return { ok: true, favicon: result.favicon };
+}

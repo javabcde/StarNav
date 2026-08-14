@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
   canAccessSite,
   canListSite,
+  ensureSiteFavicon,
+  faviconFailedKey,
   listSitesByIds,
   normalizeDuplicateUrlKey,
   normalizeImportPayload,
@@ -258,4 +260,77 @@ test('listSitesByIds 清洗 id：NaN/负数/空字符串/重复被剔除，空�
 
   assert.deepEqual(await listSitesByIds(env, []), []);
   assert.deepEqual(await listSitesByIds(env, ['x', -1]), []);
+});
+
+// ===== ensureSiteFavicon（图标自动补全）=====
+
+function createFaviconEnv({ kv } = {}) {
+  const kvStore = kv || new Map();
+  return {
+    NAV_AUTH: {
+      async get(key) {
+        return kvStore.has(key) ? kvStore.get(key) : null;
+      },
+      async put(key, value) {
+        kvStore.set(key, String(value));
+      },
+      async delete(key) {
+        kvStore.delete(key);
+      },
+    },
+    NAV_DB: {
+      prepare() {
+        return {
+          bind() {
+            return {
+              async run() {
+                return { success: true };
+              },
+            };
+          },
+        };
+      },
+    },
+  };
+}
+
+test('ensureSiteFavicon：已有 logo 直接跳过，不抓取不写标记', async (t) => {
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => {
+    throw new Error('should not fetch');
+  });
+  const kv = new Map();
+  const result = await ensureSiteFavicon(createFaviconEnv({ kv }), { id: 1, logo: 'https://i/x.png', url: 'https://example.test' });
+  assert.deepEqual(result, { updated: false, reason: 'has-logo' });
+  assert.equal(fetchMock.mock.callCount(), 0, '不应发起任何抓取请求');
+  assert.equal(kv.has(faviconFailedKey(1)), false, '不应写失败标记');
+});
+
+test('ensureSiteFavicon：抓取成功写回 logo，不写失败标记', async (t) => {
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => new Response('x', { status: 200, headers: { 'content-type': 'image/png' } }));
+  const kv = new Map();
+  const result = await ensureSiteFavicon(createFaviconEnv({ kv }), { id: 2, logo: '', url: 'https://example.test' });
+  assert.equal(result.updated, true);
+  assert.equal(result.reason, 'filled');
+  assert.match(result.favicon, /^https:\/\//, '成功应返回图标 URL');
+  assert.equal(fetchMock.mock.callCount(), 1, '第一个源命中即停止');
+  assert.equal(kv.has(faviconFailedKey(2)), false);
+});
+
+test('ensureSiteFavicon：5 源全失败写入永久失败标记（no-favicon）', async (t) => {
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => new Response('x', { status: 404 }));
+  const kv = new Map();
+  const result = await ensureSiteFavicon(createFaviconEnv({ kv }), { id: 3, logo: '', url: 'https://example.test' });
+  assert.deepEqual(result, { updated: false, reason: 'no-favicon' });
+  assert.equal(fetchMock.mock.callCount(), 5, '5 个源全部尝试后放弃');
+  assert.equal(kv.get(faviconFailedKey(3)), '1', '失败标记应为永久值');
+});
+
+test('ensureSiteFavicon：已标记失败的站点跳过，不再抓取', async (t) => {
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => {
+    throw new Error('should not fetch');
+  });
+  const kv = new Map([[faviconFailedKey(4), '1']]);
+  const result = await ensureSiteFavicon(createFaviconEnv({ kv }), { id: 4, logo: '', url: 'https://example.test' });
+  assert.deepEqual(result, { updated: false, reason: 'already-failed' });
+  assert.equal(fetchMock.mock.callCount(), 0, '不应发起任何抓取请求');
 });
