@@ -3,6 +3,7 @@ const els = {
   url: document.getElementById('url'),
   desc: document.getElementById('desc'),
   appTitle: document.getElementById('appTitle'),
+  appTitleText: document.getElementById('appTitleText'),
   openSiteBtn: document.getElementById('openSiteBtn'),
   syncHint: document.getElementById('syncHint'),
   catelog: document.getElementById('catelog'),
@@ -215,10 +216,11 @@ async function loadConfig() {
 }
 
 // 用站点设置里的名字替换写死的 StarNav（options 连接时已存 storage.sync.siteName）
+// 注意：只改文本 span 的 textContent，避免覆盖 h1 内的主站跳转按钮
 function applySiteName() {
   const siteName = config.siteName || 'StarNav';
   document.title = `收藏到 ${siteName}`;
-  if (els.appTitle) els.appTitle.textContent = `收藏到 ${siteName}`;
+  if (els.appTitleText) els.appTitleText.textContent = `收藏到 ${siteName}`;
   if (els.syncHint) els.syncHint.textContent = `把浏览器收藏夹里的书签同步到 ${siteName} 网站，以浏览器为基准；网站上的手动书签不会被覆盖。`;
 }
 
