@@ -851,49 +851,75 @@ function buildCategoryTree(flat) {
 
 const FOLDER_ICON_SVG = '<svg class="cat-folder-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M2 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z"/></svg>';
 
-// 递归渲染分类节点：顶层节点横向排布（flex-wrap），展开的子分类在
-// 节点下方纵向缩进排列，全部带文件夹图标与书签卡片区分
-function renderCategoryNode(node, level) {
+// 顶层节点渲染：只出按钮行（有子时带 ▸/▾ 切换），子分类统一进下方子区块
+function renderCategoryRow(node) {
   const isActive = browseState.catelog === node.name;
   const hasChildren = node.children.length > 0;
   const expanded = expandedCategories.has(node.name);
-  const catBtn = `<button type="button" class="browse-cat${isActive ? ' active' : ''}${level > 0 ? ' browse-cat-child' : ''}" data-cat="${escapeHTML(node.name)}">${FOLDER_ICON_SVG}${escapeHTML(node.name)}</button>`;
-  const row = hasChildren
-    ? `<div class="browse-cat-row">${catBtn}<button type="button" class="browse-cat-toggle" data-expand="${escapeHTML(node.name)}" title="${expanded ? '收起子分类' : '展开子分类'}">${expanded ? '▾' : '▸'}</button></div>`
-    : catBtn;
-  const childrenHtml = (hasChildren && expanded)
-    ? `<div class="cat-node-children" style="margin-left:${(level + 1) * 16}px">${node.children.map((child) => renderCategoryNode(child, level + 1)).join('')}</div>`
-    : '';
-  return `<div class="cat-node">${row}${childrenHtml}</div>`;
+  const catBtn = `<button type="button" class="browse-cat${isActive ? ' active' : ''}" data-cat="${escapeHTML(node.name)}">${FOLDER_ICON_SVG}${escapeHTML(node.name)}</button>`;
+  if (!hasChildren) return catBtn;
+  return `<div class="browse-cat-row">${catBtn}<button type="button" class="browse-cat-toggle" data-expand="${escapeHTML(node.name)}" title="${expanded ? '收起子分类' : '展开子分类'}">${expanded ? '▾' : '▸'}</button></div>`;
+}
+
+// 收集所有展开节点的子分类到子区块（横向 wrap + 层级缩进，避免纵向长列）
+function collectExpandedChildren(nodes, out, level) {
+  for (const node of nodes) {
+    if (!node.children.length || !expandedCategories.has(node.name)) continue;
+    for (const child of node.children) pushChildCategory(child, out, level);
+  }
+}
+
+function pushChildCategory(child, out, level) {
+  const isActive = browseState.catelog === child.name;
+  const hasChildren = child.children.length > 0;
+  const expanded = hasChildren && expandedCategories.has(child.name);
+  const indent = `${(level + 1) * 16}px`;
+  const btn = `<button type="button" class="browse-cat browse-cat-child${isActive ? ' active' : ''}" data-cat="${escapeHTML(child.name)}" style="margin-left:${indent}">${FOLDER_ICON_SVG}${escapeHTML(child.name)}</button>`;
+  out.push(hasChildren
+    ? `<span class="browse-cat-row">${btn}<button type="button" class="browse-cat-toggle" data-expand="${escapeHTML(child.name)}" title="${expanded ? '收起子分类' : '展开子分类'}">${expanded ? '▾' : '▸'}</button></span>`
+    : btn);
+  if (expanded) {
+    for (const grand of child.children) pushChildCategory(grand, out, level + 1);
+  }
 }
 
 function renderCategories() {
-  const tree = buildCategoryTree([{ name: '', level: 0 }, ...browseCategories]);
+  const flat = [{ name: '', level: 0 }, ...browseCategories];
+  const tree = buildCategoryTree(flat);
 
   // 当前筛选分类若是子分类，展开其祖先链，保证按钮可见
   if (browseState.catelog) {
-    for (const name of ancestorsOf([{ name: '', level: 0 }, ...browseCategories], browseState.catelog)) expandedCategories.add(name);
+    for (const name of ancestorsOf(flat, browseState.catelog)) expandedCategories.add(name);
   }
 
-  els.browseCats.innerHTML = tree.map((node) => renderCategoryNode(node, 0)).join('');
+  els.browseCats.innerHTML = tree.map((node) => renderCategoryRow(node)).join('');
 
-  for (const btn of els.browseCats.querySelectorAll('.browse-cat')) {
-    btn.addEventListener('click', () => {
-      const cat = btn.dataset.cat || '';
-      if (browseState.catelog === cat) return;
-      browseState.catelog = cat;
-      renderCategories();
-      loadBrowse(true);
-    });
-  }
-  for (const btn of els.browseCats.querySelectorAll('.browse-cat-toggle')) {
-    btn.addEventListener('click', () => {
-      const name = btn.dataset.expand;
-      if (expandedCategories.has(name)) expandedCategories.delete(name);
-      else expandedCategories.add(name);
-      renderCategories();
-    });
-  }
+  const childrenHtml = [];
+  collectExpandedChildren(tree, childrenHtml, 0);
+  els.browseCatChildren.innerHTML = childrenHtml.join('');
+  els.browseCatChildren.style.display = childrenHtml.length ? 'flex' : 'none';
+
+  const bind = (root) => {
+    for (const btn of root.querySelectorAll('.browse-cat')) {
+      btn.addEventListener('click', () => {
+        const cat = btn.dataset.cat || '';
+        if (browseState.catelog === cat) return;
+        browseState.catelog = cat;
+        renderCategories();
+        loadBrowse(true);
+      });
+    }
+    for (const btn of root.querySelectorAll('.browse-cat-toggle')) {
+      btn.addEventListener('click', () => {
+        const name = btn.dataset.expand;
+        if (expandedCategories.has(name)) expandedCategories.delete(name);
+        else expandedCategories.add(name);
+        renderCategories();
+      });
+    }
+  };
+  bind(els.browseCats);
+  bind(els.browseCatChildren);
 }
 
 let browseSearchTimer = null;

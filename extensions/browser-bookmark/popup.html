@@ -326,10 +326,13 @@
       gap: 5px;
     }
 
-    .cat-node-children {
+    .browse-cat-children {
       display: flex;
-      flex-direction: column;
+      flex-wrap: wrap;
+      align-items: center;
       gap: 5px;
+      padding: 6px 0 8px;
+      margin-bottom: 6px;
     }
 
     .browse-cat-row {
@@ -622,6 +625,7 @@
         </button>
       </div>
       <div id="browseCats" class="browse-cats"></div>
+      <div id="browseCatChildren" class="browse-cat-children" style="display:none;"></div>
       <div id="browseList" class="browse-list"></div>
       <button id="browseMore" type="button" class="secondary" style="display:none;">加载更多</button>
       <div id="browseStatus"></div>
