@@ -185,7 +185,9 @@ async function ensureFaviconForSite(siteId) {
   } finally {
     clearTimeout(timer);
   }
-  if (!result || !result.updated || !result.favicon) {
+  // 只要拿到 favicon URL 就本地 patch（has-logo 返回现有 URL 也算）：
+  // 主站刚补过的书签，插件缓存借此立即对齐，不误报失败
+  if (!result || !result.favicon) {
     const reason = result ? result.reason : `http-${httpStatus}`;
     // 调试可见化：popup 下次打开时显示失败原因（10 分钟内）
     await chrome.storage.local.set({

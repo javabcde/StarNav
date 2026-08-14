@@ -1212,7 +1212,9 @@ export function faviconFailedKey(id) {
  */
 export async function ensureSiteFavicon(env, site) {
   if (!site) return { updated: false, reason: 'no-site' };
-  if (site.logo) return { updated: false, reason: 'has-logo' };
+  // 已有时返回现有 URL：插件缓存可能落后于 D1（主站刚补过），
+  // 拿到 URL 即可本地 patch，无需再抓取
+  if (site.logo) return { updated: false, favicon: site.logo, reason: 'has-logo' };
 
   const failedKey = faviconFailedKey(site.id);
   const failed = await env.NAV_AUTH.get(failedKey);

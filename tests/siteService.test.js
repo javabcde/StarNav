@@ -294,13 +294,15 @@ function createFaviconEnv({ kv } = {}) {
   };
 }
 
-test('ensureSiteFavicon：已有 logo 直接跳过，不抓取不写标记', async (t) => {
+test('ensureSiteFavicon：已有 logo 直接跳过，不抓取不写标记，返回现有 URL', async (t) => {
   const fetchMock = t.mock.method(globalThis, 'fetch', async () => {
     throw new Error('should not fetch');
   });
   const kv = new Map();
   const result = await ensureSiteFavicon(createFaviconEnv({ kv }), { id: 1, logo: 'https://i/x.png', url: 'https://example.test' });
-  assert.deepEqual(result, { updated: false, reason: 'has-logo' });
+  assert.equal(result.updated, false);
+  assert.equal(result.reason, 'has-logo');
+  assert.equal(result.favicon, 'https://i/x.png', '应返回现有 logo，供插件本地 patch');
   assert.equal(fetchMock.mock.callCount(), 0, '不应发起任何抓取请求');
   assert.equal(kv.has(faviconFailedKey(1)), false, '不应写失败标记');
 });
