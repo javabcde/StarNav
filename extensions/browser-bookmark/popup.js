@@ -685,7 +685,8 @@ function renderBrowseList() {
 }
 
 function updateBrowseMore() {
-  const hasMore = browseState.items.length < browseState.total;
+  // 已渲染 = page * pageSize（items 是当前页切片，不能拿当前页长度比较）
+  const hasMore = BrowseLogic.browseHasMore(browseState.page, browseState.pageSize, browseState.total);
   els.browseMore.style.display = hasMore ? 'block' : 'none';
   els.browseMore.textContent = '加载更多';
 }
@@ -698,7 +699,7 @@ function observeBrowseMore() {
     browseMoreObserver = null;
   }
   updateBrowseMore();
-  if (browseState.items.length >= browseState.total) return;
+  if (!BrowseLogic.browseHasMore(browseState.page, browseState.pageSize, browseState.total)) return;
   browseMoreObserver = new IntersectionObserver((entries) => {
     if (browseState.loading || !entries.some((e) => e.isIntersecting)) return;
     browseMoreObserver.disconnect();

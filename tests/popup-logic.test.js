@@ -17,6 +17,7 @@ const {
   decideBrowseView,
   filterBrowseItems,
   paginateItems,
+  browseHasMore,
   toggleCategory,
   injectAncestors,
   ancestorsOf,
@@ -123,6 +124,21 @@ test('paginateItems：切片与边界', () => {
   assert.deepEqual(paginateItems(items, 0, 30), items.slice(0, 30), 'page 0 按 1 处理');
   assert.deepEqual(paginateItems(items, 1, 0), items.slice(0, 30), 'pageSize 0 按默认 30');
   assert.deepEqual(paginateItems(items, 99, 30), [], '超范围返回空');
+});
+
+test('browseHasMore：按 page×pageSize 判定，不依赖当前页长度', () => {
+  // 85 条 pageSize 30：page1/2 有更多，page3 覆盖完（25 条）
+  assert.equal(browseHasMore(1, 30, 85), true);
+  assert.equal(browseHasMore(2, 30, 85), true);
+  assert.equal(browseHasMore(3, 30, 85), false);
+  // 40 条：page1 有更多，page2 覆盖完（10 条——若按当前页长度会误判有更多）
+  assert.equal(browseHasMore(1, 30, 40), true);
+  assert.equal(browseHasMore(2, 30, 40), false);
+  // 边界与异常
+  assert.equal(browseHasMore(1, 30, 30), false, '正好一页');
+  assert.equal(browseHasMore(0, 30, 85), true, 'page 0 按 1');
+  assert.equal(browseHasMore(1, 0, 85), true, 'pageSize 0 按 30');
+  assert.equal(browseHasMore(1, 30, 0), false, 'total 0');
 });
 
 // ── 手风琴状态机（1722632 / 15cf3e8 契约）──────────────────

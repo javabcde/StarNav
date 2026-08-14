@@ -79,6 +79,19 @@
   }
 
   /**
+   * 是否还有更多页可加载（page 从 1 起，已渲染 = page * pageSize）。
+   * @param {number} page
+   * @param {number} pageSize
+   * @param {number} total 过滤后总条数
+   * @returns {boolean}
+   */
+  function browseHasMore(page, pageSize, total) {
+    const size = Math.max(1, Number(pageSize) || 30);
+    const current = Math.max(1, Number(page) || 1) * size;
+    return current < Number(total);
+  }
+
+  /**
    * 手风琴展开切换：同一时间只展开一个父分类；点当前展开的则收起。
    * @param {Set<string>} expanded 当前展开集合（不修改，返回新 Set）
    * @param {string} name 被点 ▸/▾ 的分类名
@@ -201,6 +214,7 @@
     decideBrowseView,
     filterBrowseItems,
     paginateItems,
+    browseHasMore,
     toggleCategory,
     injectAncestors,
     ancestorsOf,
