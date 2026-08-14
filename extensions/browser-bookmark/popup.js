@@ -970,7 +970,18 @@ function renderCategories() {
         // 手动收起（非空→空）后抑制祖先链自动注入：否则筛选子分类时
         // 收起父分类会被 injectAncestors 立即重新展开，收不回去
         suppressAncestorInjection = hadExpansion && expandedCategories.size === 0;
+        // 收起时若筛选在该父分类的子孙下，切回父分类（显示父+子孙全部）
+        let collapseChangedFilter = false;
+        if (suppressAncestorInjection) {
+          const current = browseState.catelog;
+          if (current && current !== name && collectCategoryNames(browseCategories, name).has(current)) {
+            browseState.catelog = name;
+            browseState.page = 1;
+            collapseChangedFilter = true;
+          }
+        }
         renderCategories();
+        if (collapseChangedFilter) applyBrowseView();
       });
     }
   };
