@@ -549,10 +549,7 @@ const browseState = {
   loading: false,
 };
 
-// 缓存签名：不含 page（缓存代表第一页视图，page 单独恢复）
-function browseSignature() {
-  return [browseState.keyword, browseState.catelog, browseState.sort].join('|');
-}
+// 缓存签名/新鲜度判定见 popup-logic.js（BrowseLogic）
 
 function effectiveCacheMinutes() {
   const minutes = Number(config.browseCacheMinutes);
@@ -577,9 +574,12 @@ async function writeBrowseCache(payload) {
 }
 
 function isBrowseCacheFresh(cache) {
-  const minutes = effectiveCacheMinutes();
-  if (!cache || minutes <= 0) return false;
-  return Date.now() - (cache.fetchedAt || 0) < minutes * 60 * 1000;
+  return BrowseLogic.isBrowseCacheFresh(cache, effectiveCacheMinutes());
+}
+
+// 当前浏览视图的缓存签名（薄封装，逻辑在 popup-logic.js）
+function currentViewSignature() {
+  return BrowseLogic.browseSignature({ keyword: browseState.keyword, catelog: browseState.catelog, sort: browseState.sort });
 }
 
 const BROWSE_AVATAR_COLORS = ['#8b5cf6', '#f5c26b', '#22d3ee', '#f472b6', '#34d399', '#60a5fa', '#fb923c', '#a78bfa'];
@@ -737,12 +737,12 @@ async function loadBrowse(reset = false, { skipCache = false, silent = false } =
     if (reset) {
       if (!skipCache) {
         const cache = await readBrowseCache();
-        if (cache && cache.signature === browseSignature() && isBrowseCacheFresh(cache)) {
+        if (cache && cache.signature === currentViewSignature() && isBrowseCacheFresh(cache)) {
           browseState.total = cache.total;
           browseState.items = cache.items;
           browseState.page = cache.page || 2;
           if (Array.isArray(cache.categories)) {
-            browseCategories = normalizeCategories(cache.categories);
+            browseCategories = BrowseLogic.normalizeCategories(cache.categories);
             renderCategories();
           }
           renderBrowseList();
@@ -782,7 +782,7 @@ async function loadBrowse(reset = false, { skipCache = false, silent = false } =
       if (reset) {
         saveBrowseView();
         // 拉取到新数据即替换本地缓存（含分类），下次打开命中缓存直接显示
-        await writeBrowseCache({ signature: browseSignature(), fetchedAt: Date.now(), items: list, total, page: browseState.page, categories: browseCategories });
+        await writeBrowseCache({ signature: currentViewSignature(), fetchedAt: Date.now(), items: list, total, page: browseState.page, categories: browseCategories });
       }
     } catch (error) {
       if (reset) els.browseList.innerHTML = '';
@@ -836,20 +836,26 @@ function restoreBrowseView() {
 
 // 打开浏览视图：缓存存在即渲染（不限视图签名，含过期），随后后台按
 // 当前视图拉取替换；完全无缓存才走并行拉取。
+// 决策矩阵（render/refresh）见 popup-logic.js 的 decideBrowseView（有测试锁定）
 async function loadBrowseView() {
   const cache = await readBrowseCache();
-  if (cache && cache.fetchedAt) {
+  const decision = BrowseLogic.decideBrowseView(
+    cache,
+    { keyword: browseState.keyword, catelog: browseState.catelog, sort: browseState.sort },
+    effectiveCacheMinutes()
+  );
+  if (decision.render) {
     browseState.total = cache.total;
     browseState.items = cache.items;
     browseState.page = cache.page || 2;
-    if (Array.isArray(cache.categories) && cache.categories.length) browseCategories = normalizeCategories(cache.categories);
+    if (Array.isArray(cache.categories) && cache.categories.length) browseCategories = BrowseLogic.normalizeCategories(cache.categories);
     renderBrowseList();
     renderCategories();
     updateBrowseMore();
     // 并行拉取竞态兜底：缓存里分类为空时补拉一次
     if (!browseCategories.length) loadCategories().catch(() => {});
     // 签名不同（换视图）或缓存过期 → 后台静默刷新为当前视图
-    if (cache.signature !== browseSignature() || !isBrowseCacheFresh(cache)) {
+    if (decision.refresh) {
       loadCategories().catch(() => {});
       loadBrowse(true, { skipCache: true, silent: true }).catch(() => {});
     }
@@ -861,34 +867,14 @@ async function loadBrowseView() {
   ]);
 }
 
-// 展平分类树为 [{ name, level }]，渲染父子层级；保持服务端排序
-function flattenCategoryTree(nodes, level = 0, out = []) {
-  for (const node of nodes) {
-    if (!node || !String(node.name || '').trim()) continue;
-    out.push({ name: String(node.name).trim(), level });
-    if (Array.isArray(node.children) && node.children.length) {
-      flattenCategoryTree(node.children, level + 1, out);
-    }
-  }
-  return out;
-}
-
-// 兼容旧缓存格式（扁平字符串数组 → 叶子节点）
-function normalizeCategories(cats) {
-  if (!Array.isArray(cats)) return [];
-  return cats
-    .map((c) => (typeof c === 'string'
-      ? { name: c.trim(), level: 0 }
-      : { name: String(c.name || '').trim(), level: Number(c.level) || 0 }))
-    .filter((c) => c.name);
-}
+// 展平分类树 / 兼容旧缓存格式见 popup-logic.js（BrowseLogic.flattenCategoryTree / normalizeCategories）
 
 async function loadCategories() {
   try {
     // tree 接口返回父子层级（/api/categories 是扁平列表，插件渲染需要层级）
     const result = await apiFetch('/api/categories/tree');
     const tree = Array.isArray(result && result.data) ? result.data : [];
-    browseCategories = flattenCategoryTree(tree);
+    browseCategories = BrowseLogic.flattenCategoryTree(tree);
   } catch {
     browseCategories = [];
   }
@@ -896,36 +882,10 @@ async function loadCategories() {
 }
 
 // 当前展开的分类名集合（点父分类旁的 ▸/▾ 切换；选中子分类时祖先自动展开）
-const expandedCategories = new Set();
+// 当前展开的分类名集合（点父分类旁的 ▸/▾ 切换；选中子分类时祖先自动展开）
+let expandedCategories = new Set();
 
-// 收集 flat 列表中某分类的全部祖先名（用于自动展开）
-function ancestorsOf(cats, name) {
-  const idx = cats.findIndex((c) => c.name === name);
-  if (idx < 0) return [];
-  const out = [];
-  let level = cats[idx].level;
-  for (let j = idx - 1; j >= 0; j -= 1) {
-    if (cats[j].level < level) {
-      out.push(cats[j].name);
-      level = cats[j].level;
-      if (level === 0) break;
-    }
-  }
-  return out;
-}
-
-// 扁平 [{name, level}] 构建树（用栈：level n 挂到最近的 level n-1 节点下）
-function buildCategoryTree(flat) {
-  const root = [];
-  const stack = [{ name: '', level: -1, children: root }];
-  for (const c of flat) {
-    while (stack.length && stack[stack.length - 1].level >= c.level) stack.pop();
-    const node = { name: c.name, level: c.level, children: [] };
-    stack[stack.length - 1].children.push(node);
-    stack.push(node);
-  }
-  return root;
-}
+// 祖先收集 / 树构建 / 分组收集见 popup-logic.js（BrowseLogic）
 
 const FOLDER_ICON_SVG = '<svg class="cat-folder-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M2 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z"/></svg>';
 
@@ -939,48 +899,30 @@ function renderCategoryRow(node) {
   return `<div class="browse-cat-row">${catBtn}<button type="button" class="browse-cat-toggle" data-expand="${escapeHTML(node.name)}" title="${expanded ? '收起子分类' : '展开子分类'}">${expanded ? '▾' : '▸'}</button></div>`;
 }
 
-// 收集展开节点的子分类，按父分类分组（每组横向 wrap，组间不混排）
-function collectCategoryGroups(tree, out) {
-  for (const node of tree) {
-    if (!node.children.length || !expandedCategories.has(node.name)) continue;
-    const items = [];
-    for (const child of node.children) pushChildCategory(child, items, 0);
-    out.push({ name: node.name, items });
-  }
-}
-
-function pushChildCategory(child, out, level) {
-  const isActive = browseState.catelog === child.name;
-  const hasChildren = child.children.length > 0;
-  const expanded = hasChildren && expandedCategories.has(child.name);
-  const indent = `${(level + 1) * 16}px`;
-  const btn = `<button type="button" class="browse-cat browse-cat-child${isActive ? ' active' : ''}" data-cat="${escapeHTML(child.name)}" style="margin-left:${indent}">${FOLDER_ICON_SVG}${escapeHTML(child.name)}</button>`;
-  out.push(hasChildren
-    ? `<span class="browse-cat-row">${btn}<button type="button" class="browse-cat-toggle" data-expand="${escapeHTML(child.name)}" title="${expanded ? '收起子分类' : '展开子分类'}">${expanded ? '▾' : '▸'}</button></span>`
-    : btn);
-  if (expanded) {
-    for (const grand of child.children) pushChildCategory(grand, out, level + 1);
-  }
+// 子分类按钮 HTML（数据来自 BrowseLogic.collectCategoryGroups）
+function renderChildCategoryItem(item) {
+  const indent = `${(item.level + 1) * 16}px`;
+  const btn = `<button type="button" class="browse-cat browse-cat-child${item.active ? ' active' : ''}" data-cat="${escapeHTML(item.name)}" style="margin-left:${indent}">${FOLDER_ICON_SVG}${escapeHTML(item.name)}</button>`;
+  return item.hasChildren
+    ? `<span class="browse-cat-row">${btn}<button type="button" class="browse-cat-toggle" data-expand="${escapeHTML(item.name)}" title="${item.expanded ? '收起子分类' : '展开子分类'}">${item.expanded ? '▾' : '▸'}</button></span>`
+    : btn;
 }
 
 function renderCategories() {
   const flat = [{ name: '', level: 0 }, ...browseCategories];
-  const tree = buildCategoryTree(flat);
+  const tree = BrowseLogic.buildCategoryTree(flat);
 
   // 当前筛选分类若是子分类，且用户没有手动展开任何父分类时，
   // 展开其祖先链保证按钮可见；用户手动展开后尊重手风琴（只显示一个）
-  if (browseState.catelog && expandedCategories.size === 0) {
-    for (const name of ancestorsOf(flat, browseState.catelog)) expandedCategories.add(name);
-  }
+  expandedCategories = BrowseLogic.injectAncestors(expandedCategories, browseState.catelog, flat);
 
   els.browseCats.innerHTML = tree.map((node) => renderCategoryRow(node)).join('');
 
-  const groups = [];
-  collectCategoryGroups(tree, groups);
+  const groups = BrowseLogic.collectCategoryGroups(tree, expandedCategories, browseState.catelog);
   els.browseCatChildren.innerHTML = groups.map((group) => `
     <div class="browse-cat-group">
       <div class="browse-cat-group-label">${FOLDER_ICON_SVG}${escapeHTML(group.name)}</div>
-      <div class="browse-cat-group-items">${group.items.join('')}</div>
+      <div class="browse-cat-group-items">${group.items.map(renderChildCategoryItem).join('')}</div>
     </div>
   `).join('');
   els.browseCatChildren.style.display = groups.length ? 'block' : 'none';
@@ -1002,13 +944,8 @@ function renderCategories() {
       btn.addEventListener('click', () => {
         const name = btn.dataset.expand;
         // 手风琴：同一时间只展开一个父分类，点另一个时自动收起前一个；
-        // 再点当前展开的则收起（回到仅顶层）
-        if (expandedCategories.has(name)) {
-          expandedCategories.delete(name);
-        } else {
-          expandedCategories.clear();
-          expandedCategories.add(name);
-        }
+        // 再点当前展开的则收起（回到仅顶层）——逻辑见 popup-logic.js
+        expandedCategories = BrowseLogic.toggleCategory(expandedCategories, name);
         renderCategories();
       });
     }
