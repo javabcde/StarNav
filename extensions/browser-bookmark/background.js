@@ -167,9 +167,10 @@ async function ensureFaviconForSite(siteId) {
     if (item && item.logo) return { ok: false, reason: 'has-logo' };
   }
 
-  // 10s 超时（与 options.apiFetch 同策略），失败静默——下次点击再试
+  // 20s 超时：服务端 getFavicon 5 源串行（每源 5s 上限），10s 不够慢源场景；
+  // 仍小于 Workers 请求 30s 限制。失败静默——下次点击再试
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
+  const timer = setTimeout(() => controller.abort(), 20000);
   let result;
   try {
     const res = await fetch(`${baseUrl}/api/site/${encodeURIComponent(siteId)}/ensure-favicon`, {

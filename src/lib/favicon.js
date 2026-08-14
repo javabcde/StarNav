@@ -15,16 +15,23 @@ export async function getFavicon(url) {
     ];
 
     for (const faviconUrl of faviconUrls) {
+      // 每源 5s 超时：5 源串行最坏 25s，避免慢源拖死整个补全（
+      // /go waitUntil 预算 30s、插件接口同步请求限时内需返回）
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
       try {
         const response = await fetch(faviconUrl, {
           cf: { cacheEverything: true },
           headers: { 'User-Agent': 'Mozilla/5.0' },
+          signal: controller.signal,
         });
         if (response.ok && response.headers.get('content-type')?.startsWith('image/')) {
           return faviconUrl;
         }
       } catch {
         // 尝试下一个源
+      } finally {
+        clearTimeout(timer);
       }
     }
 
