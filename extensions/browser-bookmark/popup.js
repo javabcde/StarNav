@@ -961,6 +961,9 @@ function renderCategories() {
       btn.addEventListener('click', () => {
         const cat = btn.dataset.cat || '';
         if (browseState.catelog === cat) return;
+        // 手风琴语义：点任意分类按钮都收起当前展开（与点箭头一致）；
+        // 若点击的是子分类，renderCategories 会按祖先链自动恢复其父的展开
+        expandedCategories.clear();
         browseState.catelog = cat;
         renderCategories();
         loadBrowse(true);
