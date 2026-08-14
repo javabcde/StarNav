@@ -225,7 +225,7 @@ async function initPopup() {
   await loadConfig();
   restoreCachedExtensionIcon().catch(() => {});
 
-  // 恢复上次浏览视图（分类/搜索/排序），与缓存签名对齐，打开即命中缓存
+  // 恢复上次浏览视图（分类/搜索/排序），打开后立即生效于本地过滤
   restoreBrowseView();
   if (els.browseSearch) els.browseSearch.value = browseState.keyword;
   if (els.browseSort) els.browseSort.value = browseState.sort;
@@ -745,6 +745,7 @@ async function loadFullCache({ silent = false } = {}) {
 
       useFullCache(cache);
       saveBrowseView();
+      return true;
     } catch (error) {
       // 非静默（首开/守卫/手动刷新）：渲染可点击重试；静默（后台刷新）失败
       // 不打断当前列表，仅状态条报错（用户可点刷新按钮）
@@ -756,6 +757,7 @@ async function loadFullCache({ silent = false } = {}) {
       } else {
         renderBrowseStatus(error.message || '加载失败', 'error');
       }
+      return false;
     } finally {
       browseState.loading = false;
       els.browseMore.disabled = false;
@@ -843,7 +845,7 @@ async function ensureBrowseCache() {
 
 let browseCategories = [];
 
-// 上次浏览视图（分类/搜索/排序）：恢复后与缓存签名对齐，打开即命中
+// 上次浏览视图（分类/搜索/排序）：恢复后立即生效于本地过滤
 const BROWSE_VIEW_KEY = 'browse:view:v1';
 function saveBrowseView() {
   try {
@@ -968,8 +970,8 @@ els.browseSort.addEventListener('change', () => {
 els.browseRefresh.addEventListener('click', async () => {
   // 强制刷新：跳过缓存重新拉全量（静默，不闪骨架屏，成功后覆盖渲染）
   renderBrowseStatus('刷新中...', '');
-  await loadFullCache({ silent: true });
-  renderBrowseStatus('');
+  const ok = await loadFullCache({ silent: true });
+  if (ok) renderBrowseStatus('');
 });
 els.browseMore.addEventListener('click', () => {
   browseState.page += 1;
