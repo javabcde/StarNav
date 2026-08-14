@@ -714,8 +714,17 @@ function observeBrowseMore() {
 
 // 收藏/同步成功后异步更新浏览缓存：后台静默重拉当前浏览视图并写缓存，
 // 下次打开浏览 tab 即最新数据（不破坏"有缓存先渲染"的秒开体验）。
-// 若浏览视图正在加载则本次跳过（下次打开 miss/旧缓存兜底）。
-function refreshBrowseCacheAfterMutation() {
+// 在途浏览加载的 promise（模块级）：收藏/同步后先等它完成再触发重拉，
+// 避免重拉被 loading 锁静默跳过、旧数据缓存带新 fetchedAt 导致 12h 不可见
+let browseLoadInFlight = null;
+
+async function refreshBrowseCacheAfterMutation() {
+  const inFlight = browseLoadInFlight;
+  if (inFlight) {
+    try { await inFlight; } catch { /* 在途加载失败忽略，随后重拉兜底 */ }
+  }
+  // 等在途任务完成后触发重拉：fetch 发生在保存提交之后（D1 强一致），
+  // 新缓存必然包含刚保存的书签
   loadBrowse(true, { skipCache: true, silent: true }).catch(() => {});
 }
 
@@ -724,67 +733,76 @@ async function loadBrowse(reset = false, { skipCache = false, silent = false } =
   browseState.loading = true;
   els.browseMore.disabled = true;
 
-  if (reset) {
-    if (!skipCache) {
-      const cache = await readBrowseCache();
-      if (cache && cache.signature === browseSignature() && isBrowseCacheFresh(cache)) {
-        browseState.total = cache.total;
-        browseState.items = cache.items;
-        browseState.page = cache.page || 2;
-        if (Array.isArray(cache.categories)) {
-          browseCategories = normalizeCategories(cache.categories);
-          renderCategories();
-        }
-        renderBrowseList();
-        browseState.loading = false;
-        updateBrowseMore();
-        els.browseMore.disabled = false;
-        return;
-      }
-    }
-    browseState.page = 1;
-    // silent：stale-while-revalidate 静默刷新，不清空已显示的旧数据、不闪骨架屏
-    if (!silent) {
-      browseState.items = [];
-      browseState.total = 0;
-      renderBrowseStatus('');
-      els.browseList.innerHTML = browseSkeletonHTML();
-    }
-  } else {
-    els.browseMore.textContent = '加载中...';
-  }
-
-  const params = new URLSearchParams({
-    page: String(browseState.page),
-    pageSize: String(browseState.pageSize),
-    keyword: browseState.keyword,
-    catalog: browseState.catelog,
-    sort: browseState.sort,
-  });
-
-  try {
-    const result = await apiFetch(`/api/config?${params.toString()}`);
-    const { list, total } = extractSiteList(result);
-    browseState.total = total;
-    browseState.items = reset ? list : browseState.items.concat(list);
-    browseState.page += 1;
-    renderBrowseList();
+  const task = (async () => {
     if (reset) {
-      saveBrowseView();
-      // 拉取到新数据即替换本地缓存（含分类），下次打开命中缓存直接显示
-      await writeBrowseCache({ signature: browseSignature(), fetchedAt: Date.now(), items: list, total, page: browseState.page, categories: browseCategories });
-    }
-  } catch (error) {
-    if (reset) els.browseList.innerHTML = '';
-    if (error.status === 401) {
-      renderBrowseStatus('Token 无效，请到设置页重新填写', 'error');
+      if (!skipCache) {
+        const cache = await readBrowseCache();
+        if (cache && cache.signature === browseSignature() && isBrowseCacheFresh(cache)) {
+          browseState.total = cache.total;
+          browseState.items = cache.items;
+          browseState.page = cache.page || 2;
+          if (Array.isArray(cache.categories)) {
+            browseCategories = normalizeCategories(cache.categories);
+            renderCategories();
+          }
+          renderBrowseList();
+          browseState.loading = false;
+          updateBrowseMore();
+          els.browseMore.disabled = false;
+          return;
+        }
+      }
+      browseState.page = 1;
+      // silent：stale-while-revalidate 静默刷新，不清空已显示的旧数据、不闪骨架屏
+      if (!silent) {
+        browseState.items = [];
+        browseState.total = 0;
+        renderBrowseStatus('');
+        els.browseList.innerHTML = browseSkeletonHTML();
+      }
     } else {
-      renderBrowseStatus(error.message || (reset ? '加载失败' : '加载更多失败'), 'error');
+      els.browseMore.textContent = '加载中...';
     }
+
+    const params = new URLSearchParams({
+      page: String(browseState.page),
+      pageSize: String(browseState.pageSize),
+      keyword: browseState.keyword,
+      catalog: browseState.catelog,
+      sort: browseState.sort,
+    });
+
+    try {
+      const result = await apiFetch(`/api/config?${params.toString()}`);
+      const { list, total } = extractSiteList(result);
+      browseState.total = total;
+      browseState.items = reset ? list : browseState.items.concat(list);
+      browseState.page += 1;
+      renderBrowseList();
+      if (reset) {
+        saveBrowseView();
+        // 拉取到新数据即替换本地缓存（含分类），下次打开命中缓存直接显示
+        await writeBrowseCache({ signature: browseSignature(), fetchedAt: Date.now(), items: list, total, page: browseState.page, categories: browseCategories });
+      }
+    } catch (error) {
+      if (reset) els.browseList.innerHTML = '';
+      if (error.status === 401) {
+        renderBrowseStatus('Token 无效，请到设置页重新填写', 'error');
+      } else {
+        renderBrowseStatus(error.message || (reset ? '加载失败' : '加载更多失败'), 'error');
+      }
+    } finally {
+      browseState.loading = false;
+      updateBrowseMore();
+      els.browseMore.disabled = false;
+    }
+  })();
+
+  browseLoadInFlight = task;
+  try {
+    return await task;
   } finally {
-    browseState.loading = false;
-    updateBrowseMore();
-    els.browseMore.disabled = false;
+    if (browseLoadInFlight === task) browseLoadInFlight = null;
   }
 }
 
