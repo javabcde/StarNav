@@ -1,7 +1,7 @@
 ## Context
 
 - 站点图标存 `sites.logo`（favicon URL 字符串），空 = 无图标。现有获取路径：添加书签时手动抓取、admin「批量刷新图标」`POST /api/config/bulk`（≤30 个，仅 admin session）。
-- 服务端已有 `getFavicon(url)`（`src/lib/favicon.js`）：5 源串行抓取返回 URL，SSRF 防护（拒绝内网/保留域名）。
+- 服务端已有 `getFavicon(url)`（`src/lib/favicon.js`）：6 源抓取返回 URL（5 聚合/标准源串行 + 源站 HTML `<link rel=icon>` 解析，各 5s 超时），SSRF 防护（拒绝内网/保留域名，私有 IP 站点自动补全永不生效、需手动填 logo）。`extractHtmlFavicon` 纯函数与 fetchSitePreview 共用。
 - 主站所有书签链接统一走 `/go/:id`：`canAccessSite` 权限检查（无权 404，连触发都不行）→ `incrementSiteHits` 放 `waitUntil` 后台 → 跳转 HTML。`site` 对象（logo/url/id）已在 handler 手上。
 - 插件站内浏览点击直接 `chrome.tabs.create` 外部 URL，**不经服务端**；插件有 Bearer token（storage.sync），但 `requireAdmin` 默认不带 `allowApiToken`，token 调不了 bulk 接口。
 - 插件 full cache（`browse:cache:v1`）存 `chrome.storage.local`，popup 与 background **共享同一存储**（可本地 patch 单条）。
