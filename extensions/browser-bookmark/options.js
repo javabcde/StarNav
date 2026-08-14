@@ -67,22 +67,28 @@ async function setExtensionIconFromUrl(iconUrl) {
     await chrome.action.setIcon({ path: iconUrl });
     return true;
   } catch (e) {
-    // 可能是远程 URL 无法直接加载，尝试 fetch + canvas
-    const response = await fetch(iconUrl);
-    const blob = await response.blob();
-    const imageBitmap = await createImageBitmap(blob);
-    const sizes = [16, 32, 48, 128];
-    const imageData = {};
-    for (const size of sizes) {
-      const canvas = document.createElement('canvas');
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(imageBitmap, 0, 0, size, size);
-      imageData[size] = ctx.getImageData(0, 0, size, size);
+    // 可能是远程 URL 无法直接加载，尝试 fetch + canvas（8s 超时兜底，防止慢图标卡住测试连接）
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(iconUrl, { signal: controller.signal });
+      const blob = await response.blob();
+      const imageBitmap = await createImageBitmap(blob);
+      const sizes = [16, 32, 48, 128];
+      const imageData = {};
+      for (const size of sizes) {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(imageBitmap, 0, 0, size, size);
+        imageData[size] = ctx.getImageData(0, 0, size, size);
+      }
+      await chrome.action.setIcon({ imageData });
+      return true;
+    } finally {
+      clearTimeout(timer);
     }
-    await chrome.action.setIcon({ imageData });
-    return true;
   }
 }
 
@@ -157,15 +163,19 @@ async function saveOptions({ silent = false } = {}) {
     defaultTags,
     browseCacheMinutes: Number(els.browseCacheMinutes?.value != null ? els.browseCacheMinutes.value : 5),
   });
-  await syncExtensionIcon({ silent: true });
+  const iconSynced = await syncExtensionIcon({ silent: true });
   if (!silent) setStatus('设置已保存，插件图标已尝试同步。', 'success');
+  return { iconSynced };
 }
 
 async function testConnection() {
-  await saveOptions({ silent: true });
-  const discovery = await apiFetch('/api/discovery');
-  await apiFetch('/api/sites/check-duplicate?url=' + encodeURIComponent('https://example.com'));
-  const iconSynced = await syncExtensionIcon({ silent: true });
+  // saveOptions 内部已同步图标（含下载），此处不再重复；
+  // discovery 与 check-duplicate 相互独立，并行发起省一次串行往返
+  const { iconSynced } = await saveOptions({ silent: true });
+  const [discovery] = await Promise.all([
+    apiFetch('/api/discovery'),
+    apiFetch('/api/sites/check-duplicate?url=' + encodeURIComponent('https://example.com')),
+  ]);
   setStatus(`连接成功：${discovery?.name || 'StarNav'}\nToken 可访问第三方写入辅助接口。\n插件图标：${iconSynced ? '已同步站点图标' : '使用默认图标'}`, 'success');
 }
 
