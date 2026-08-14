@@ -68,6 +68,10 @@
 - **WHEN** 用户点击刷新按钮
 - **THEN** 强制拉取全量并替换缓存
 
+#### Scenario: 图标缺失占位
+- **WHEN** 书签无 logo 或 logo 加载失败
+- **THEN** 列表项显示星标占位（✦ + 首字母，星云色板），不发外部请求
+
 ### Requirement: 全量数据接口
 
 `GET /api/config?all=1` SHALL 返回当前鉴权可见的全部书签（忽略 page/pageSize 分页），按 sort 参数或默认排序（创建时间倒序）排列，可见性过滤与现有分页模式完全一致；响应含 `total` 全量条数。

@@ -3,6 +3,7 @@ const els = {
   url: document.getElementById('url'),
   desc: document.getElementById('desc'),
   appTitle: document.getElementById('appTitle'),
+  openSiteBtn: document.getElementById('openSiteBtn'),
   syncHint: document.getElementById('syncHint'),
   catelog: document.getElementById('catelog'),
   tags: document.getElementById('tags'),
@@ -416,6 +417,20 @@ els.checkDuplicateBtn.addEventListener('click', () => runAction(els.checkDuplica
 els.saveBtn.addEventListener('click', () => runAction(els.saveBtn, () => saveBookmark({ force: false })));
 els.forceSaveBtn.addEventListener('click', () => runAction(els.forceSaveBtn, () => saveBookmark({ force: true })));
 els.optionsBtn.addEventListener('click', () => chrome.runtime.openOptionsPage());
+els.openSiteBtn.addEventListener('click', async () => {
+  const baseUrl = normalizeBaseUrl(config.baseUrl);
+  if (!baseUrl) {
+    setStatus('请先在设置中填写主站地址', 'error');
+    return;
+  }
+  try {
+    await chrome.tabs.create({ url: baseUrl, active: true });
+  } catch (error) {
+    setStatus(`打开主站失败：${error.message || error}`, 'error');
+    return;
+  }
+  window.close();
+});
 
 els.syncBtn.addEventListener('click', async () => {
   els.syncBtn.disabled = true;
