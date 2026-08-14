@@ -781,8 +781,7 @@ async function loadFullCache({ silent = false } = {}) {
       };
       await writeBrowseCache(cache);
 
-      useFullCache(cache);
-      saveBrowseView();
+      useFullCache(cache); // 内部经 applyBrowseView 统一保存视图
       return true;
     } catch (error) {
       // 非静默（首开/守卫/手动刷新）：渲染可点击重试；静默（后台刷新）失败
@@ -837,6 +836,9 @@ function applyBrowseView({ append = false } = {}) {
   const pageItems = BrowseLogic.paginateItems(filtered, browseState.page, browseState.pageSize);
   browseState.items = (append && browseState.page > 1) ? browseState.items.concat(pageItems) : pageItems;
   renderBrowseList();
+  // 视图持久化：分类/搜索/排序切换都经 applyBrowseView，统一在此保存
+  // （此前只在 useFullCache 保存 → 切分类后关闭再打开会恢复旧分类）
+  saveBrowseView();
 }
 
 // 收集分类及其全部子孙名（供客户端分类过滤，父分类含子孙书签）
