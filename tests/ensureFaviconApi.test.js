@@ -151,6 +151,6 @@ test('ensure-favicon：抓取失败写永久标记并返回 reason=no-favicon', 
   assert.equal(response.status, 200);
   assert.equal(body.data.updated, false);
   assert.equal(body.data.reason, 'no-favicon');
-  assert.equal(fetchMock.mock.callCount(), 5, '5 源全失败后写标记');
+  assert.equal(fetchMock.mock.callCount(), 6, '5 聚合源 + HTML 源全失败后写标记');
   assert.equal(await env.NAV_AUTH.get('favicon:failed:6'), '1');
 });

@@ -121,7 +121,7 @@ test('GET /go/:id 抓取失败写永久失败标记，下次点击不再抓', as
     waitUntil(task) { waitUntilTasks.push(task); },
   });
   await Promise.all(waitUntilTasks);
-  assert.equal(fetchMock.mock.callCount(), 5, '5 源全失败后写永久标记');
+  assert.equal(fetchMock.mock.callCount(), 6, '5 聚合源 + HTML 源全失败后写永久标记');
   assert.equal(await env.NAV_AUTH.get('favicon:failed:11'), '1', '失败应写永久标记');
 
   // 已标记：再次点击不触发抓取
@@ -130,5 +130,5 @@ test('GET /go/:id 抓取失败写永久失败标记，下次点击不再抓', as
   });
   await again.text();
   await Promise.all(waitUntilTasks);
-  assert.equal(fetchMock.mock.callCount(), 5, '已标记失败不应再次抓取');
+  assert.equal(fetchMock.mock.callCount(), 6, '已标记失败不应再次抓取');
 });

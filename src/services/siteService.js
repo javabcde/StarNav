@@ -1,4 +1,4 @@
-import { getFavicon } from '../lib/favicon.js';
+import { extractHtmlFavicon, getFavicon } from '../lib/favicon.js';
 import { readTextWithLimit, safeFetch } from '../lib/ssrf.js';
 import { cleanText, normalizeSortOrder, nullableText } from '../lib/utils.js';
 import { upsertCategoryByName } from './categoryService.js';
@@ -2064,14 +2064,7 @@ export async function fetchSitePreview(url) {
   const keywords = extractMetaAttr(head, 'keywords') || '';
   const ogImage = extractMetaAttr(head, 'og:image') || extractMetaAttr(head, 'twitter:image') || '';
 
-  let favicon = '';
-  const iconMatch = head.match(/<link[^>]+rel=["'](?:icon|shortcut icon|apple-touch-icon)["'][^>]*>/i);
-  if (iconMatch) {
-    const hrefMatch = iconMatch[0].match(/href=["']([^"']+)["']/i);
-    if (hrefMatch) {
-      favicon = resolveUrl(targetUrl, hrefMatch[1]);
-    }
-  }
+  let favicon = extractHtmlFavicon(html, targetUrl);
 
   return {
     title: cleanText(title).slice(0, 200),

@@ -323,7 +323,7 @@ test('ensureSiteFavicon：5 源全失败写入永久失败标记（no-favicon）
   const kv = new Map();
   const result = await ensureSiteFavicon(createFaviconEnv({ kv }), { id: 3, logo: '', url: 'https://example.test' });
   assert.deepEqual(result, { updated: false, reason: 'no-favicon' });
-  assert.equal(fetchMock.mock.callCount(), 5, '5 个源全部尝试后放弃');
+  assert.equal(fetchMock.mock.callCount(), 6, '5 个聚合源 + 源站 HTML 全部尝试后放弃');
   assert.equal(kv.get(faviconFailedKey(3)), '1', '失败标记应为永久值');
 });
 
