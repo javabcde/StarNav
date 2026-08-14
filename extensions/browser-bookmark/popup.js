@@ -705,7 +705,7 @@ function observeBrowseMore() {
     browseMoreObserver.disconnect();
     browseMoreObserver = null;
     browseState.page += 1;
-    applyBrowseView();
+    applyBrowseView({ append: true });
   }, { rootMargin: '0px 0px 180px 0px' });
   browseMoreObserver.observe(els.browseMore);
 }
@@ -799,8 +799,10 @@ function useFullCache(cache) {
   applyBrowseView();
 }
 
-// 客户端过滤 + 分页渲染（守卫：仅全量缓存就绪时生效）
-function applyBrowseView() {
+// 客户端过滤 + 分页渲染（守卫：仅全量缓存就绪时生效）。
+// append=true 时把新页拼接到已渲染列表（无限滚动累积，可往上滚回前页）；
+// 视图切换/重置（page=1）时替换为第一页
+function applyBrowseView({ append = false } = {}) {
   if (!browseState.cacheReady) {
     showBrowseInitState();
     return;
@@ -810,7 +812,8 @@ function applyBrowseView() {
     : null;
   const filtered = BrowseLogic.filterBrowseItems(browseState.cacheItems, browseState, catelogNames);
   browseState.total = filtered.length;
-  browseState.items = BrowseLogic.paginateItems(filtered, browseState.page, browseState.pageSize);
+  const pageItems = BrowseLogic.paginateItems(filtered, browseState.page, browseState.pageSize);
+  browseState.items = (append && browseState.page > 1) ? browseState.items.concat(pageItems) : pageItems;
   renderBrowseList();
 }
 
@@ -991,7 +994,7 @@ els.browseRefresh.addEventListener('click', async () => {
 });
 els.browseMore.addEventListener('click', () => {
   browseState.page += 1;
-  applyBrowseView();
+  applyBrowseView({ append: true });
 });
 
 // 初始化失败重试：browseList 一次性事件委托（不随渲染重复绑定）
