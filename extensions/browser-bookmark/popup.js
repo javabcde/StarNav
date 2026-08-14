@@ -671,7 +671,7 @@ async function loadBrowse(reset = false, { skipCache = false, silent = false } =
         browseState.items = cache.items;
         browseState.page = cache.page || 2;
         if (Array.isArray(cache.categories)) {
-          browseCategories = cache.categories;
+          browseCategories = normalizeCategories(cache.categories);
           renderCategories();
         }
         renderBrowseList();
@@ -736,7 +736,7 @@ async function loadBrowseView() {
     browseState.total = cache.total;
     browseState.items = cache.items;
     browseState.page = cache.page || 2;
-    if (Array.isArray(cache.categories)) browseCategories = cache.categories;
+    if (Array.isArray(cache.categories)) browseCategories = normalizeCategories(cache.categories);
     renderBrowseList();
     renderCategories();
     updateBrowseMore();
@@ -751,11 +751,34 @@ async function loadBrowseView() {
   await loadBrowse(true);
 }
 
+// 展平分类树为 [{ name, level }]，渲染父子层级；保持服务端排序
+function flattenCategoryTree(nodes, level = 0, out = []) {
+  for (const node of nodes) {
+    if (!node || !String(node.name || '').trim()) continue;
+    out.push({ name: String(node.name).trim(), level });
+    if (Array.isArray(node.children) && node.children.length) {
+      flattenCategoryTree(node.children, level + 1, out);
+    }
+  }
+  return out;
+}
+
+// 兼容旧缓存格式（扁平字符串数组 → 叶子节点）
+function normalizeCategories(cats) {
+  if (!Array.isArray(cats)) return [];
+  return cats
+    .map((c) => (typeof c === 'string'
+      ? { name: c.trim(), level: 0 }
+      : { name: String(c.name || '').trim(), level: Number(c.level) || 0 }))
+    .filter((c) => c.name);
+}
+
 async function loadCategories() {
   try {
-    const result = await apiFetch('/api/categories');
-    const raw = Array.isArray(result && result.data) ? result.data : [];
-    browseCategories = raw.map((c) => (c && String(c.name || '')).trim()).filter(Boolean);
+    // tree 接口返回父子层级（/api/categories 是扁平列表，插件渲染需要层级）
+    const result = await apiFetch('/api/categories/tree');
+    const tree = Array.isArray(result && result.data) ? result.data : [];
+    browseCategories = flattenCategoryTree(tree);
   } catch {
     browseCategories = [];
   }
@@ -763,10 +786,11 @@ async function loadCategories() {
 }
 
 function renderCategories() {
-  const cats = ['', ...browseCategories];
+  const cats = [{ name: '', level: 0 }, ...browseCategories];
   els.browseCats.innerHTML = cats.map((cat) => {
-    const isActive = browseState.catelog === cat;
-    return `<button type="button" class="browse-cat${isActive ? ' active' : ''}" data-cat="${escapeHTML(cat)}">${escapeHTML(cat || '全部')}</button>`;
+    const isActive = browseState.catelog === cat.name;
+    const childPrefix = cat.level > 0 ? '\u3000'.repeat(cat.level) + '└ ' : '';
+    return `<button type="button" class="browse-cat${isActive ? ' active' : ''}${cat.level > 0 ? ' browse-cat-child' : ''}" data-cat="${escapeHTML(cat.name)}">${childPrefix}${escapeHTML(cat.name || '全部')}</button>`;
   }).join('');
 
   for (const btn of els.browseCats.querySelectorAll('.browse-cat')) {

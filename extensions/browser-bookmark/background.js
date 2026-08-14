@@ -3,6 +3,18 @@
 // 服务端冷启动延迟不再被用户感知。
 const BROWSE_CACHE_KEY = 'browse:cache:v1';
 
+// 与 popup.flattenCategoryTree 同构：分类树展平为 [{ name, level }]
+function flattenCategoryTree(nodes, level = 0, out = []) {
+  for (const node of nodes) {
+    if (!node || !String(node.name || '').trim()) continue;
+    out.push({ name: String(node.name).trim(), level });
+    if (Array.isArray(node.children) && node.children.length) {
+      flattenCategoryTree(node.children, level + 1, out);
+    }
+  }
+  return out;
+}
+
 async function warmBrowseCache() {
   try {
     const settings = await chrome.storage.sync.get(['baseUrl', 'token']);
@@ -14,7 +26,7 @@ async function warmBrowseCache() {
     const params = new URLSearchParams({ page: '1', pageSize: '30', keyword: '', catalog: '', sort: '' });
     const [listRes, catsRes] = await Promise.all([
       fetch(`${baseUrl}/api/config?${params.toString()}`, { headers }),
-      fetch(`${baseUrl}/api/categories`, { headers }),
+      fetch(`${baseUrl}/api/categories/tree`, { headers }),
     ]);
     if (!listRes.ok || !catsRes.ok) return;
 
@@ -23,8 +35,9 @@ async function warmBrowseCache() {
     const data = listData && listData.data;
     const items = Array.isArray(data) ? data : (data && Array.isArray(data.list) ? data.list : []);
     const total = Number(listData.total != null ? listData.total : (data && data.total)) || items.length;
-    const rawCats = Array.isArray(catsData && catsData.data) ? catsData.data : [];
-    const categories = rawCats.map((c) => String((c && c.name) || '')).filter(Boolean);
+    // 分类树展平为 [{ name, level }]（与 popup 的 flattenCategoryTree 同构）
+    const tree = Array.isArray(catsData && catsData.data) ? catsData.data : [];
+    const categories = flattenCategoryTree(tree);
 
     await chrome.storage.local.set({
       [BROWSE_CACHE_KEY]: { signature: '||', fetchedAt: Date.now(), items, total, page: 2, categories },
