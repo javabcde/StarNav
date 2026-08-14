@@ -208,13 +208,18 @@ async function testConnection() {
     apiFetch('/api/sites/check-duplicate?url=' + encodeURIComponent('https://example.com')),
   ]);
 
-  // 站点名落盘（popup 显示用）；图标同步后台进行，失败静默，不阻塞结果
+  // 站点名落盘（popup 显示用）；图标同步后台进行，完成后再更新状态栏
   const siteName = settings?.data?.siteName || discovery?.name || 'StarNav';
   const iconUrl = resolveUrl(baseUrl, settings?.data?.siteIcon || settings?.data?.icon || '/pwa-icon.svg');
   await chrome.storage.sync.set({ siteName, siteIcon: iconUrl });
-  setExtensionIconFromUrl(iconUrl).catch(() => {});
-
-  setStatus(`连接成功：${siteName}\nToken 可访问第三方写入辅助接口。\n插件图标：${iconUrl ? '后台同步中' : '使用默认图标'}`, 'success');
+  setStatus(`连接成功：${siteName}\nToken 可访问第三方写入辅助接口。\n插件图标：同步中...`, 'success');
+  setExtensionIconFromUrl(iconUrl)
+    .then((ok) => {
+      setStatus(`连接成功：${siteName}\nToken 可访问第三方写入辅助接口。\n插件图标：${ok ? '已同步站点图标' : '使用默认图标'}`, 'success');
+    })
+    .catch(() => {
+      setStatus(`连接成功：${siteName}\nToken 可访问第三方写入辅助接口。\n插件图标：使用默认图标`, 'success');
+    });
 }
 
 async function refreshMetadata() {
