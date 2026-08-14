@@ -746,8 +746,10 @@ async function loadFullCache({ silent = false } = {}) {
       useFullCache(cache);
       saveBrowseView();
     } catch (error) {
+      // 非静默（首开/守卫/手动刷新）：渲染可点击重试；静默（后台刷新）失败
+      // 不打断当前列表，仅状态条报错（用户可点刷新按钮）
       if (!silent) {
-        els.browseList.innerHTML = '<div class="browse-empty">初始化失败，点击重试</div>';
+        els.browseList.innerHTML = '<div class="browse-empty browse-retry" role="button" tabindex="0">初始化失败，点击重试</div>';
       }
       if (error.status === 401) {
         renderBrowseStatus('Token 无效，请到设置页重新填写', 'error');
@@ -823,7 +825,7 @@ async function loadBrowseView() {
   const decision = BrowseLogic.decideBrowseView(cache, effectiveCacheMinutes());
   if (!decision.render) {
     showBrowseInitState();
-    await loadFullCache({ silent: true });
+    await loadFullCache();
     return;
   }
   useFullCache(cache);
@@ -835,7 +837,7 @@ async function loadBrowseView() {
 // 视图切换守卫：缓存未就绪时先触发全量拉取，就绪后立即本地过滤
 async function ensureBrowseCache() {
   if (browseState.cacheReady) return true;
-  await loadFullCache({ silent: true });
+  await loadFullCache();
   return browseState.cacheReady;
 }
 
@@ -972,6 +974,13 @@ els.browseRefresh.addEventListener('click', async () => {
 els.browseMore.addEventListener('click', () => {
   browseState.page += 1;
   applyBrowseView();
+});
+
+// 初始化失败重试：browseList 一次性事件委托（不随渲染重复绑定）
+els.browseList.addEventListener('click', (e) => {
+  if (!e.target.closest('.browse-retry')) return;
+  showBrowseInitState();
+  loadFullCache().catch(() => {});
 });
 
 initPopup();
