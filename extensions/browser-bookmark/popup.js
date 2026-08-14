@@ -343,6 +343,8 @@ async function saveBookmark({ force = false } = {}) {
 
   showDuplicate(null);
   setStatus(`已保存到 ${config.siteName || 'StarNav'}：${payload.name}`, 'success');
+  // 异步更新浏览缓存：后台静默重拉当前视图，浏览 tab 下次打开即包含新书签
+  refreshBrowseCacheAfterMutation();
   return result;
 }
 
@@ -384,6 +386,8 @@ async function syncBookmarks() {
 
   renderSyncResult(result?.data || {});
   setStatus('同步完成。', 'success');
+  // 同步可能增删改书签，后台重拉浏览缓存保持一致
+  refreshBrowseCacheAfterMutation();
   return true;
 }
 
@@ -706,6 +710,13 @@ function observeBrowseMore() {
     loadBrowse(false).catch(() => {});
   }, { rootMargin: '0px 0px 180px 0px' });
   browseMoreObserver.observe(els.browseMore);
+}
+
+// 收藏/同步成功后异步更新浏览缓存：后台静默重拉当前浏览视图并写缓存，
+// 下次打开浏览 tab 即最新数据（不破坏"有缓存先渲染"的秒开体验）。
+// 若浏览视图正在加载则本次跳过（下次打开 miss/旧缓存兜底）。
+function refreshBrowseCacheAfterMutation() {
+  loadBrowse(true, { skipCache: true, silent: true }).catch(() => {});
 }
 
 async function loadBrowse(reset = false, { skipCache = false, silent = false } = {}) {
