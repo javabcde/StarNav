@@ -71,7 +71,16 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 // 浏览器启动时预热（MV3 service worker 由事件唤醒）
-chrome.runtime.onStartup.addListener(() => warmBrowseCache());
+chrome.runtime.onStartup.addListener(() => {
+  warmBrowseCache();
+  // 菜单标题兜底刷新：安装时站点名可能未配置（菜单为 StarNav），
+  // 之后配置了名字但 storage 值未变时 onChanged 不触发——启动时强制对齐
+  chrome.storage.sync.get(['siteName'], ({ siteName }) => {
+    chrome.contextMenus.update("starnav-collect", {
+      title: `收藏当前网页到 ${siteName || 'StarNav'}`,
+    }).catch(() => {});
+  });
+});
 
 // 监听右键菜单点击
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
@@ -143,10 +152,19 @@ function showNotification(type, title, message) {
   });
 }
 
-// 图标自动补全：popup 站内浏览点击无图标书签时上报（fire-and-forget，
+// 图标自动补全 / 站点名同步：popup 站内浏览点击无图标书签时上报（fire-and-forget，
 // popup 关闭后由本 background 接管），成功后本地 patch full cache 该条 logo。
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!message || message.type !== 'ensure-favicon') return; // 非本消息不拦截
+  if (!message) return;
+  // 站点名同步：popup 拉取公开设置后直连更新菜单（不依赖 storage.onChanged——
+  // 值未变时 onChanged 不触发，菜单会停留在安装时的默认名）
+  if (message.type === 'sync-site-name') {
+    chrome.contextMenus.update("starnav-collect", {
+      title: `收藏当前网页到 ${message.siteName || 'StarNav'}`,
+    }).catch(() => {});
+    return;
+  }
+  if (message.type !== 'ensure-favicon') return; // 非本消息不拦截
   ensureFaviconForSite(message.siteId)
     .then(sendResponse)
     .catch(() => sendResponse({ ok: false, reason: 'unexpected' }));

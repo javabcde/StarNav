@@ -240,6 +240,10 @@ async function syncSiteNameSilently() {
       // 值未变：仅更新时间戳，避免下次打开重复拉取
       await chrome.storage.sync.set({ siteNameFetchedAt: Date.now() }).catch(() => {});
     }
+    if (siteName) {
+      // 直连更新右键菜单：不依赖 storage.onChanged（值未变时不触发）
+      chrome.runtime.sendMessage({ type: 'sync-site-name', siteName }).catch(() => {});
+    }
   } catch {
     // 拉取失败静默：沿用已存值/默认名
   } finally {
