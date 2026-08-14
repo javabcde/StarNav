@@ -201,7 +201,6 @@ async function loadConfig() {
     'defaultTags',
     'siteIcon',
     'siteName',
-    'siteNameFetchedAt',
     'browseCacheMinutes',
   ]);
   const localData = await chrome.storage.local.get([
@@ -214,41 +213,6 @@ async function loadConfig() {
 
   renderDatalist(els.categoryList, config.categories || [], (item) => item.name || item.catelog || item);
   renderDatalist(els.tagList, config.tags || [], (item) => item.name || item.tag || item);
-}
-
-async function syncSiteNameSilently() {
-  const baseUrl = config.baseUrl ? String(config.baseUrl).replace(/\/$/, '') : '';
-  if (!baseUrl) return;
-  // 按浏览缓存 TTL 节流：TTL 内不重复拉取（站点名变化频率远低于打开频率），
-  // 超时才重新同步；options 重新连接仍即时刷新
-  const ttlMinutes = effectiveCacheMinutes();
-  const fetchedAt = Number(config.siteNameFetchedAt || 0);
-  if (config.siteName && fetchedAt && Date.now() - fetchedAt < ttlMinutes * 60 * 1000) return;
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
-  try {
-    const res = await fetch(`${baseUrl}/api/settings/public`, { signal: controller.signal });
-    if (!res.ok) return;
-    const data = await res.json();
-    const siteName = String((data && (data.data?.siteName || data.siteName)) || '').trim();
-    if (siteName && siteName !== config.siteName) {
-      await chrome.storage.sync.set({ siteName, siteNameFetchedAt: Date.now() });
-      config.siteName = siteName; // 本地立即生效（标题/提示）
-      applySiteName();
-    } else if (siteName) {
-      // 值未变：仅更新时间戳，避免下次打开重复拉取
-      await chrome.storage.sync.set({ siteNameFetchedAt: Date.now() }).catch(() => {});
-    }
-    if (siteName) {
-      // 直连更新右键菜单：不依赖 storage.onChanged（值未变时不触发）
-      chrome.runtime.sendMessage({ type: 'sync-site-name', siteName }).catch(() => {});
-    }
-  } catch {
-    // 拉取失败静默：沿用已存值/默认名
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 // 用站点设置里的名字替换写死的 StarNav（options 连接时已存 storage.sync.siteName）
@@ -287,11 +251,6 @@ async function initPopup() {
   }
 
   setStatus('插件已就绪。');
-
-  // 静默同步站点名：服务端设置改名后无需重新连接，popup 打开即拉取更新
-  // （/api/settings/public 公开接口无需 token）；storage 值变更触发
-  // background onChanged → contextMenus.update，右键菜单标题自动跟随
-  syncSiteNameSilently().catch(() => {});
 
   // 图标补全调试可见化：上次点击补全失败（10 分钟内）时显示原因。
   // 必须在 setStatus('插件已就绪。') 之后执行，否则会被其覆盖（reviewer F1）。

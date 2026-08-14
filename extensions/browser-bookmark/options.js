@@ -113,7 +113,10 @@ async function syncExtensionIcon({ silent = false } = {}) {
     const data = settings?.data || {};
     const iconUrl = resolveUrl(baseUrl, data.siteIcon || data.icon || '/pwa-icon.svg');
     const ok = await setExtensionIconFromUrl(iconUrl);
-    await chrome.storage.sync.set({ siteIcon: iconUrl, siteName: data.siteName || data.name || 'StarNav' });
+    const siteName = data.siteName || data.name || 'StarNav';
+    await chrome.storage.sync.set({ siteIcon: iconUrl, siteName });
+    // 直连更新右键菜单标题（不依赖 storage.onChanged——值未变时不触发）
+    chrome.runtime.sendMessage({ type: 'sync-site-name', siteName }).catch(() => {});
     if (ok && !silent) setStatus('站点图标已同步到浏览器插件。', 'success');
     return ok;
   } catch (error) {
@@ -212,6 +215,8 @@ async function testConnection() {
   const siteName = settings?.data?.siteName || discovery?.name || 'StarNav';
   const iconUrl = resolveUrl(baseUrl, settings?.data?.siteIcon || settings?.data?.icon || '/pwa-icon.svg');
   await chrome.storage.sync.set({ siteName, siteIcon: iconUrl });
+  // 直连更新右键菜单标题（不依赖 storage.onChanged——值未变时不触发）
+  chrome.runtime.sendMessage({ type: 'sync-site-name', siteName }).catch(() => {});
   setStatus(`连接成功：${siteName}\nToken 可访问第三方写入辅助接口。\n插件图标：同步中...`, 'success');
   setExtensionIconFromUrl(iconUrl)
     .then((ok) => {
