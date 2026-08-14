@@ -17,30 +17,32 @@ function flattenCategoryTree(nodes, level = 0, out = []) {
 
 async function warmBrowseCache() {
   try {
-    const settings = await chrome.storage.sync.get(['baseUrl', 'token']);
+    const settings = await chrome.storage.sync.get(['baseUrl', 'token', 'browseCacheMinutes']);
     const baseUrl = settings.baseUrl ? settings.baseUrl.replace(/\/$/, '') : '';
     const token = settings.token || '';
     if (!baseUrl || !token) return;
 
     const headers = { Authorization: `Bearer ${token}` };
-    const params = new URLSearchParams({ page: '1', pageSize: '30', keyword: '', catalog: '', sort: '' });
     const [listRes, catsRes] = await Promise.all([
-      fetch(`${baseUrl}/api/config?${params.toString()}`, { headers }),
+      fetch(`${baseUrl}/api/config?all=1`, { headers }),
       fetch(`${baseUrl}/api/categories/tree`, { headers }),
     ]);
     if (!listRes.ok || !catsRes.ok) return;
 
     const [listData, catsData] = await Promise.all([listRes.json(), catsRes.json()]);
-    // 解析规则与 popup.extractSiteList 保持一致：data 数组或 data.list 形态
+    // 与 popup 的 loadFullCache 同构：data 为全量书签数组
     const data = listData && listData.data;
-    const items = Array.isArray(data) ? data : (data && Array.isArray(data.list) ? data.list : []);
-    const total = Number(listData.total != null ? listData.total : (data && data.total)) || items.length;
+    const items = Array.isArray(data) ? data : [];
+    const total = Number(listData.total != null ? listData.total : items.length) || items.length;
     // 分类树展平为 [{ name, level }]（与 popup 的 flattenCategoryTree 同构）
     const tree = Array.isArray(catsData && catsData.data) ? catsData.data : [];
     const categories = flattenCategoryTree(tree);
+    const minutes = Number(settings.browseCacheMinutes);
+    const ttlMinutes = Number.isFinite(minutes) && minutes >= 0 ? minutes : 5;
 
+    // 写新格式全量缓存（kind==='full'）；旧格式缓存会被 popup 视为无效重建
     await chrome.storage.local.set({
-      [BROWSE_CACHE_KEY]: { signature: '||', fetchedAt: Date.now(), items, total, page: 2, categories },
+      [BROWSE_CACHE_KEY]: { kind: 'full', fetchedAt: Date.now(), ttlMinutes, items, total, categories },
     });
   } catch {
     // 预热失败静默：popup 首次打开仍走正常拉取

@@ -17,7 +17,8 @@
 - [ ] 3.2 `loadBrowseView` 按新决策渲染：零请求分支、初始化态分支、过期后台刷新
 - [ ] 3.3 浏览搜索/分类点击/排序/加载更多改为客户端过滤渲染（去掉对应 fetch）；**守卫：缓存非 full（旧格式/拉取中）时任何视图切换动作先等待或触发全量拉取，不得对部分数据过滤**
 - [ ] 3.4 初始化态 UI：骨架 + 「正在初始化书签…」文案 + 失败重试
-- [ ] 3.5 `refreshBrowseCacheAfterMutation` 保持"等待在途任务"语义，目标改为全量重拉
+- [x] 3.5 `refreshBrowseCacheAfterMutation` 保持"等待在途任务"语义，目标改为全量重拉
+- [x] 3.6 `background.js` 预热（onInstalled/onStartup）同步新格式：拉 `/api/config?all=1` + 分类树，写 `{ kind:'full', fetchedAt, ttlMinutes, items, total, categories }`（ttlMinutes 读 sync.browseCacheMinutes）；不得再写旧格式覆盖新缓存
 
 ## 4. 测试与验证
 
