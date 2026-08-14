@@ -23,6 +23,27 @@ import { renderFrontAdminModal, renderSubmitModal } from './home/modals.js';
 import { frontAdminScript, dragScript, myUsageScript } from './home/scripts.js';
 import { homeCssVersion } from './home/css.js';
 
+// 收集某分类及其全部子孙分类名（分类树递归，与 API 端递归 CTE 语义一致）
+function collectCategoryWithDescendants(nodes, targetName, acc = new Set()) {
+  for (const node of nodes) {
+    if (node.name === targetName) {
+      collectSubtreeNames(node, acc);
+      return acc;
+    }
+    if (Array.isArray(node.children) && node.children.length) {
+      collectCategoryWithDescendants(node.children, targetName, acc);
+    }
+  }
+  return acc;
+}
+
+function collectSubtreeNames(node, acc) {
+  acc.add(node.name);
+  if (Array.isArray(node.children)) {
+    for (const child of node.children) collectSubtreeNames(child, acc);
+  }
+}
+
 export async function renderHomePage(request, env, ctx) {
   const i18n = resolveI18n(request);
   const { lang, dir, t, th } = i18n;
@@ -83,8 +104,13 @@ export async function renderHomePage(request, env, ctx) {
   const datalistCategoryNames = categoryNames.filter((name) => !isPrivateBookmarkCategory(name));
   const catalogExists = Boolean(catalog && categoryNames.includes(catalog));
   const privateCatalogLocked = catalogExists && isPrivateCatalog && !privateUnlocked;
+  // 分类过滤含子孙：点父分类显示父 + 全部子分类的书签（与 /api/config 的 getSites 一致）
+  const catalogNames = catalogExists
+    ? collectCategoryWithDescendants(categoryTree, catalog)
+    : new Set();
+  if (catalogExists && catalogNames.size === 0) catalogNames.add(catalog); // 兜底精确匹配（旧数据无分类记录）
   const baseCurrentSites = catalogExists
-    ? (privateCatalogLocked ? [] : visibleSites.filter((site) => site.catelog === catalog))
+    ? (privateCatalogLocked ? [] : visibleSites.filter((site) => catalogNames.has(site.catelog)))
     : visibleSites;
   const taggedCurrentSites = tagFilter
     ? baseCurrentSites.filter((site) => Array.isArray(site.tags) && site.tags.includes(tagFilter))

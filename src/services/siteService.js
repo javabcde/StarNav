@@ -472,8 +472,24 @@ export async function getSites(env, { page = 1, pageSize = 10, catalog = '', key
   }
 
   if (catalog) {
-    where.push('(c.name = ? OR (s.category_id IS NULL AND s.catelog = ?))');
-    binds.push(catalog, catalog);
+    // 父分类包含其全部子孙分类的书签（分类树递归 CTE）；
+    // 与首页渲染语义一致：点父文件夹看到父+所有子文件夹的内容
+    let catalogNames = [catalog];
+    try {
+      const { results } = await env.NAV_DB.prepare(`
+        WITH RECURSIVE cat_tree(id, name) AS (
+          SELECT id, name FROM categories WHERE name = ?
+          UNION ALL
+          SELECT c.id, c.name FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+        )
+        SELECT name FROM cat_tree
+      `).bind(catalog).all();
+      if (results && results.length) catalogNames = results.map((row) => row.name);
+    } catch (error) {
+      console.warn(`[sites] category tree resolve fallback: ${error?.message || error}`);
+    }
+    where.push(`(c.name IN (${catalogNames.map(() => '?').join(',')}) OR (s.category_id IS NULL AND s.catelog IN (${catalogNames.map(() => '?').join(',')})))`);
+    binds.push(...catalogNames, ...catalogNames);
   }
 
   const likeKeyword = toSafeLikePattern(keyword);
@@ -532,8 +548,8 @@ export async function getSites(env, { page = 1, pageSize = 10, catalog = '', key
   const fallbackBinds = [];
 
   if (catalog) {
-    fallbackWhere.push('s.catelog = ?');
-    fallbackBinds.push(catalog);
+    fallbackWhere.push(`s.catelog IN (${catalogNames.map(() => '?').join(',')})`);
+    fallbackBinds.push(...catalogNames);
   }
 
   const fallbackLikeKeyword = toSafeLikePattern(keyword);
