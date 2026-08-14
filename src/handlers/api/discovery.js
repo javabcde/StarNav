@@ -94,6 +94,13 @@ export function getPublicApiDiscovery(origin = '') {
       },
     },
     {
+      method: 'POST',
+      path: '/api/site/:id/ensure-favicon',
+      summary: '补全指定书签的站点图标',
+      auth: 'bearer',
+      permission: '需后台 cookie 或 Bearer Token write/admin scope；无图标且未标记失败时抓取写回，幂等返回 { updated, favicon, reason }',
+    },
+    {
       method: 'GET',
       path: '/api/site/preview',
       summary: '抓取网站标题、描述、favicon，并检测重复',

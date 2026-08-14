@@ -167,12 +167,14 @@ async function ensureFaviconForSite(siteId) {
     if (item && item.logo) return { ok: false, reason: 'has-logo' };
   }
 
-  // 20s 超时：服务端 getFavicon 5 源串行（每源 5s 上限），10s 不够慢源场景；
+  // 28s 超时：服务端 getFavicon 5 源串行（每源 5s 上限，最坏 ~25s），
+  // 客户端需大于服务端最坏耗时才能收敛（20s 会让慢站永远补不上）；
   // 仍小于 Workers 请求 30s 限制。失败静默——下次点击再试
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
+  const timer = setTimeout(() => controller.abort(), 28000);
   let result;
   let httpStatus = 0;
+  let timedOut = false;
   try {
     const res = await fetch(`${baseUrl}/api/site/${encodeURIComponent(siteId)}/ensure-favicon`, {
       method: 'POST',
@@ -182,13 +184,16 @@ async function ensureFaviconForSite(siteId) {
     httpStatus = res.status;
     const data = await res.json().catch(() => ({}));
     result = data && data.data;
+  } catch (error) {
+    // 超时/网络层异常：不写失败标记（下次点击再试），但记录调试原因
+    timedOut = error && error.name === 'AbortError';
   } finally {
     clearTimeout(timer);
   }
   // 只要拿到 favicon URL 就本地 patch（has-logo 返回现有 URL 也算）：
   // 主站刚补过的书签，插件缓存借此立即对齐，不误报失败
   if (!result || !result.favicon) {
-    const reason = result ? result.reason : `http-${httpStatus}`;
+    const reason = result ? result.reason : (timedOut ? 'timeout' : `http-${httpStatus || 'network'}`);
     // 调试可见化：popup 下次打开时显示失败原因（10 分钟内）
     await chrome.storage.local.set({
       'favicon:debug:last': { siteId: Number(siteId), at: Date.now(), ok: false, reason, httpStatus },

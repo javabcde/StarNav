@@ -228,19 +228,6 @@ async function initPopup() {
   await loadConfig();
   restoreCachedExtensionIcon().catch(() => {});
 
-  // 图标补全调试可见化：上次点击补全失败（10 分钟内）时显示原因，帮助定位
-  // 403=整站锁/token 问题、404=书签不存在、timeout=服务端抓取超时
-  try {
-    const debug = (await chrome.storage.local.get('favicon:debug:last'))['favicon:debug:last'];
-    if (debug && debug.at && Date.now() - debug.at < 10 * 60 * 1000) {
-      const reason = debug.httpStatus ? `${debug.reason} (HTTP ${debug.httpStatus})` : debug.reason;
-      setStatus(`上次图标补全未生效：${reason}`, 'warning');
-      chrome.storage.local.remove('favicon:debug:last').catch(() => {});
-    }
-  } catch {
-    // 忽略读取失败
-  }
-
   // 恢复上次浏览视图（分类/搜索/排序），打开后立即生效于本地过滤
   restoreBrowseView();
   if (els.browseSearch) els.browseSearch.value = browseState.keyword;
@@ -264,6 +251,20 @@ async function initPopup() {
   }
 
   setStatus('插件已就绪。');
+
+  // 图标补全调试可见化：上次点击补全失败（10 分钟内）时显示原因。
+  // 必须在 setStatus('插件已就绪。') 之后执行，否则会被其覆盖（reviewer F1）。
+  // 403=整站锁/token 问题、404=书签不存在、timeout=服务端抓取超时
+  try {
+    const debug = (await chrome.storage.local.get('favicon:debug:last'))['favicon:debug:last'];
+    if (debug && debug.at && Date.now() - debug.at < 10 * 60 * 1000) {
+      const reason = debug.httpStatus ? `${debug.reason} (HTTP ${debug.httpStatus})` : debug.reason;
+      setStatus(`上次图标补全未生效：${reason}`, 'warning');
+      chrome.storage.local.remove('favicon:debug:last').catch(() => {});
+    }
+  } catch {
+    // 忽略读取失败
+  }
   // 查重只在进入收藏视图时执行（见 switchTab），打开 popup 默认停在浏览视图，不打扰
 }
 

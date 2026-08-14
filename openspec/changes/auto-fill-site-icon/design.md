@@ -42,7 +42,7 @@ KV `favicon:failed:{id}` 无 TTL。`bulkRefreshSiteFavicons` 处理每站（成�
 - 替代 24h TTL：用户明确"抓不到就不抓了 不用重试"——永久放弃，避免死链站反复烧外部 API。
 
 ### D5：插件 background 中转 + 本地 patch
-popup 浏览点击：该条缓存 logo 空时 `chrome.runtime.sendMessage({type:'ensure-favicon', siteId})`（fire-and-forget，popup 关闭后 background 接管）。background `onMessage`：查缓存该条 logo 已非空 → 直接返回（省请求）；否则带 token 调 D3 接口（10s 超时）→ `updated` 时 patch `items[i].logo` 写回 chrome.storage.local。
+popup 浏览点击：该条缓存 logo 空时 `chrome.runtime.sendMessage({type:'ensure-favicon', siteId})`（fire-and-forget，popup 关闭后 background 接管）。background `onMessage`：查缓存该条 logo 已非空 → 直接返回（省请求）；否则带 token 调 D3 接口（28s 超时——大于服务端 getFavicon 5 源最坏 ~25s，保证慢站也能收敛；异常区分 timeout/network 记入调试记录）→ 拿到 favicon URL（updated 或 has-logo 均算）时 patch `items[i].logo` 写回 chrome.storage.local。
 - 替代：background 补完重拉全量缓存——多一次 `/api/config?all=1`；用户选本地局部更新（零额外请求）。
 
 ### D6：主站缓存不 purge
