@@ -785,13 +785,67 @@ async function loadCategories() {
   renderCategories();
 }
 
+// 当前展开的分类名集合（点父分类旁的 ▸/▾ 切换；选中子分类时祖先自动展开）
+const expandedCategories = new Set();
+
+// flat 列表中第 i 个分类的父分类名（向前找最近 level-1 节点）；无则 ''
+function parentNameOf(cats, i) {
+  for (let j = i - 1; j >= 0; j -= 1) {
+    if (cats[j].level === cats[i].level - 1) return cats[j].name;
+  }
+  return '';
+}
+
+// flat 列表中第 i 个分类是否含子分类（其后存在 level+1 节点且中间无同层或更浅节点）
+function hasChildrenOf(cats, i) {
+  for (let j = i + 1; j < cats.length; j += 1) {
+    if (cats[j].level <= cats[i].level) return false;
+    if (cats[j].level === cats[i].level + 1) return true;
+  }
+  return false;
+}
+
+// 收集 flat 列表中某分类的全部祖先名（用于自动展开）
+function ancestorsOf(cats, name) {
+  const idx = cats.findIndex((c) => c.name === name);
+  if (idx < 0) return [];
+  const out = [];
+  let level = cats[idx].level;
+  for (let j = idx - 1; j >= 0; j -= 1) {
+    if (cats[j].level < level) {
+      out.push(cats[j].name);
+      level = cats[j].level;
+      if (level === 0) break;
+    }
+  }
+  return out;
+}
+
 function renderCategories() {
   const cats = [{ name: '', level: 0 }, ...browseCategories];
-  els.browseCats.innerHTML = cats.map((cat) => {
+
+  // 当前筛选分类若是子分类，展开其祖先链，保证按钮可见
+  if (browseState.catelog) {
+    for (const name of ancestorsOf(cats, browseState.catelog)) expandedCategories.add(name);
+  }
+
+  let html = '';
+  for (let i = 0; i < cats.length; i += 1) {
+    const cat = cats[i];
+    if (cat.level > 0 && !expandedCategories.has(parentNameOf(cats, i))) continue; // 父未展开 → 隐藏子
+
     const isActive = browseState.catelog === cat.name;
-    const childPrefix = cat.level > 0 ? '\u3000'.repeat(cat.level) + '└ ' : '';
-    return `<button type="button" class="browse-cat${isActive ? ' active' : ''}${cat.level > 0 ? ' browse-cat-child' : ''}" data-cat="${escapeHTML(cat.name)}">${childPrefix}${escapeHTML(cat.name || '全部')}</button>`;
-  }).join('');
+    const isChild = cat.level > 0;
+    const hasChildren = hasChildrenOf(cats, i);
+    const expanded = expandedCategories.has(cat.name);
+    const childPrefix = isChild ? '\u3000'.repeat(cat.level) + '└ ' : '';
+
+    html += `<button type="button" class="browse-cat${isActive ? ' active' : ''}${isChild ? ' browse-cat-child' : ''}" data-cat="${escapeHTML(cat.name)}">${childPrefix}${escapeHTML(cat.name || '全部')}</button>`;
+    if (hasChildren) {
+      html += `<button type="button" class="browse-cat-toggle" data-expand="${escapeHTML(cat.name)}" title="${expanded ? '收起子分类' : '展开子分类'}">${expanded ? '▾' : '▸'}</button>`;
+    }
+  }
+  els.browseCats.innerHTML = html;
 
   for (const btn of els.browseCats.querySelectorAll('.browse-cat')) {
     btn.addEventListener('click', () => {
@@ -800,6 +854,14 @@ function renderCategories() {
       browseState.catelog = cat;
       renderCategories();
       loadBrowse(true);
+    });
+  }
+  for (const btn of els.browseCats.querySelectorAll('.browse-cat-toggle')) {
+    btn.addEventListener('click', () => {
+      const name = btn.dataset.expand;
+      if (expandedCategories.has(name)) expandedCategories.delete(name);
+      else expandedCategories.add(name);
+      renderCategories();
     });
   }
 }
