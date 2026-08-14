@@ -890,8 +890,9 @@ function renderCategories() {
   const flat = [{ name: '', level: 0 }, ...browseCategories];
   const tree = buildCategoryTree(flat);
 
-  // 当前筛选分类若是子分类，展开其祖先链，保证按钮可见
-  if (browseState.catelog) {
+  // 当前筛选分类若是子分类，且用户没有手动展开任何父分类时，
+  // 展开其祖先链保证按钮可见；用户手动展开后尊重手风琴（只显示一个）
+  if (browseState.catelog && expandedCategories.size === 0) {
     for (const name of ancestorsOf(flat, browseState.catelog)) expandedCategories.add(name);
   }
 
@@ -920,8 +921,14 @@ function renderCategories() {
     for (const btn of root.querySelectorAll('.browse-cat-toggle')) {
       btn.addEventListener('click', () => {
         const name = btn.dataset.expand;
-        if (expandedCategories.has(name)) expandedCategories.delete(name);
-        else expandedCategories.add(name);
+        // 手风琴：同一时间只展开一个父分类，点另一个时自动收起前一个；
+        // 再点当前展开的则收起（回到仅顶层）
+        if (expandedCategories.has(name)) {
+          expandedCategories.delete(name);
+        } else {
+          expandedCategories.clear();
+          expandedCategories.add(name);
+        }
         renderCategories();
       });
     }
