@@ -560,7 +560,7 @@ function isBrowseCacheFresh(cache) {
   return Date.now() - (cache.fetchedAt || 0) < minutes * 60 * 1000;
 }
 
-const BROWSE_AVATAR_COLORS = ['#2563eb', '#7c3aed', '#db2777', '#ea580c', '#16a34a', '#0891b2', '#4f46e5', '#ca8a04'];
+const BROWSE_AVATAR_COLORS = ['#8b5cf6', '#f5c26b', '#22d3ee', '#f472b6', '#34d399', '#60a5fa', '#fb923c', '#a78bfa'];
 
 function browseAvatarColor(text) {
   let hash = 0;
@@ -603,15 +603,19 @@ function renderBrowseItem(item) {
   const url = item.url || '';
   const letter = (name.charAt(0) || '?').toUpperCase();
   const color = browseAvatarColor(name);
+  const catelog = String(item.catelog || '').trim();
   const logoHtml = item.logo
     ? `<img class="browse-logo" src="${escapeHTML(item.logo)}" alt="" loading="lazy" data-letter="${escapeHTML(letter)}" data-color="${color}">`
-    : `<span class="browse-logo-placeholder" style="background:${color}">${escapeHTML(letter)}</span>`;
+    : `<span class="browse-logo-placeholder" style="--star-color:${color}"><b>${escapeHTML(letter)}</b><i>✦</i></span>`;
   return `
     <div class="browse-item" data-url="${escapeHTML(url)}" title="${escapeHTML(url)}">
       ${logoHtml}
       <div class="browse-item-body">
         <div class="browse-item-title">${escapeHTML(name)}</div>
-        <div class="browse-item-host">${escapeHTML(browseHostOf(url))}</div>
+        <div class="browse-item-meta">
+          ${catelog ? `<span class="browse-chip">${escapeHTML(catelog)}</span>` : ''}
+          <span class="browse-item-host">${escapeHTML(browseHostOf(url))}</span>
+        </div>
       </div>
     </div>
   `;
@@ -620,42 +624,70 @@ function renderBrowseItem(item) {
 function renderBrowseList() {
   renderBrowseStatus('');
   if (!browseState.items.length) {
-    els.browseList.innerHTML = '<div class="browse-empty">未找到书签</div>';
+    const filtering = browseState.keyword || browseState.catelog;
+    els.browseList.innerHTML = `<div class="browse-empty">${filtering ? '没有匹配的书签 — 清空搜索或换个分类试试' : '站里还没有书签 — 切到「收藏」添加第一个'}</div>`;
     return;
   }
   els.browseList.innerHTML = browseState.items.map(renderBrowseItem).join('');
 
   for (const itemEl of els.browseList.querySelectorAll('.browse-item')) {
     const targetUrl = itemEl.dataset.url;
-    // logo 加载失败：隐藏图片并显示首字母占位（MV3 CSP 禁止内联 onerror，改用监听器）
+    // logo 加载失败：隐藏图片并显示星标占位（MV3 CSP 禁止内联 onerror，改用监听器）
     const logoImg = itemEl.querySelector('img.browse-logo');
     if (logoImg) {
       logoImg.addEventListener('error', () => {
         const placeholder = document.createElement('span');
         placeholder.className = 'browse-logo-placeholder';
-        placeholder.textContent = logoImg.dataset.letter || '?';
-        placeholder.style.background = logoImg.dataset.color || '#2563eb';
+        placeholder.style.setProperty('--star-color', logoImg.dataset.color || '#8b5cf6');
+        placeholder.innerHTML = `<b>${escapeHTML(logoImg.dataset.letter || '?')}</b><i>✦</i>`;
         logoImg.replaceWith(placeholder);
       }, { once: true });
     }
     if (targetUrl) {
-      itemEl.addEventListener('click', async () => {
-        try {
-          await chrome.tabs.create({ url: targetUrl, active: true });
-        } catch (error) {
-          renderBrowseStatus(error.message || '打开失败', 'error');
-          return;
-        }
-        window.close();
+      // 跃迁反馈：点击闪星芒后打开，避免"点了没反应"的错觉
+      itemEl.addEventListener('click', () => {
+        if (itemEl.classList.contains('jumping')) return;
+        itemEl.classList.add('jumping');
+        setTimeout(async () => {
+          try {
+            await chrome.tabs.create({ url: targetUrl, active: true });
+          } catch (error) {
+            renderBrowseStatus(error.message || '打开失败', 'error');
+            itemEl.classList.remove('jumping');
+            return;
+          }
+          window.close();
+        }, 230);
       });
     }
   }
+  observeBrowseMore();
 }
 
 function updateBrowseMore() {
   const hasMore = browseState.items.length < browseState.total;
   els.browseMore.style.display = hasMore ? 'block' : 'none';
   els.browseMore.textContent = '加载更多';
+}
+
+// 无限滚动：接近列表底部自动加载下一页。
+// 一次性触发（触发后 disconnect），只有数据成功更新（renderBrowseList）才重新观察，
+// 加载失败时保持断开，由「加载更多」按钮兜底重试，避免失败后自动连打请求。
+let browseMoreObserver = null;
+function observeBrowseMore() {
+  if (browseMoreObserver) {
+    browseMoreObserver.disconnect();
+    browseMoreObserver = null;
+  }
+  updateBrowseMore();
+  if (browseState.items.length >= browseState.total) return;
+  browseMoreObserver = new IntersectionObserver((entries) => {
+    if (browseState.loading || !entries.some((e) => e.isIntersecting)) return;
+    browseMoreObserver.disconnect();
+    browseMoreObserver = null;
+    loadBrowse(false).catch(() => {});
+  }, { rootMargin: '0px 0px 180px 0px' });
+  browseMoreObserver.observe(els.browseMore);
 }
 
 async function loadBrowse(reset = false, { skipCache = false, silent = false } = {}) {
