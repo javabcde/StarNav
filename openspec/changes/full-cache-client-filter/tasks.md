@@ -6,14 +6,14 @@
 
 ## 2. 插件纯逻辑层（popup-logic.js）
 
-- [ ] 2.1 缓存决策 `decideBrowseView` 重写为全量语义：新格式（kind==='full'）新鲜 → render+零请求；过期 → render+后台刷新；**旧格式缓存 → render + 后台拉全量升级（一次性迁移，不得零请求，对齐 spec「旧缓存兼容」）**；无缓存 → render:false（初始化态）
+- [ ] 2.1 缓存决策 `decideBrowseView` 重写为全量语义：新格式（kind==='full'）新鲜 → render+零请求；过期 → render+后台刷新；**旧格式/未知格式（无 kind==='full'）→ 视为无缓存（render:false，初始化态拉全量重建）**；无缓存 → render:false（初始化态）
 - [ ] 2.2 新增 `filterBrowseItems(items, view)`：keyword 子串（大小写不敏感）、catelog 含子孙、sort（default/hits/last_visit/name）——纯函数；**守卫：仅对 kind==='full' 缓存生效，非 full 不得对部分数据过滤**
 - [ ] 2.3 新增 `paginateItems(items, page, pageSize)` 客户端分页切片
-- [ ] 2.4 新增 `isLegacyBrowseCache(cache)` / 旧格式兼容归一化（旧格式 → 标记需升级）
+- [ ] 2.4 新增 `isFullBrowseCache(cache)`：识别新格式（kind==='full'）；非 full（旧格式/未知）按无缓存处理丢弃
 
 ## 3. 插件 DOM 层（popup.js / popup.html）
 
-- [ ] 3.1 拉取路径：打开/过期/收藏/同步 → `Promise.all([/api/config?all=1, /api/categories/tree])` 写新格式缓存；旧格式升级
+- [ ] 3.1 拉取路径：打开/过期/收藏/同步 → `Promise.all([/api/config?all=1, /api/categories/tree])` 写新格式缓存；旧格式缓存识别后丢弃（走 2.4）
 - [ ] 3.2 `loadBrowseView` 按新决策渲染：零请求分支、初始化态分支、过期后台刷新
 - [ ] 3.3 浏览搜索/分类点击/排序/加载更多改为客户端过滤渲染（去掉对应 fetch）；**守卫：缓存非 full（旧格式/拉取中）时任何视图切换动作先等待或触发全量拉取，不得对部分数据过滤**
 - [ ] 3.4 初始化态 UI：骨架 + 「正在初始化书签…」文案 + 失败重试
@@ -21,5 +21,5 @@
 
 ## 4. 测试与验证
 
-- [ ] 4.1 `tests/popup-logic.test.js`：更新决策矩阵用例（新语义）、新增过滤/分页用例、**旧格式 fixture 用例（decideBrowseView 对旧格式返回 refresh:true）+ 非 full 缓存视图切换走拉取路径用例**
+- [ ] 4.1 `tests/popup-logic.test.js`：更新决策矩阵用例（新语义）、新增过滤/分页用例、**旧格式 fixture 用例（无 kind==='full' → decideBrowseView 返回 render:false，走初始化态重建）**
 - [ ] 4.2 全量测试 + 语法检查通过；扩展手动重载验证：有缓存零请求（Network 面板无 /api/config）、切视图秒开、收藏后缓存更新

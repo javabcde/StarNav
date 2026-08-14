@@ -34,13 +34,13 @@
 }
 ```
 
-移除 `signature`。旧格式（含 `signature` + 单页 `items`）读取时兼容：正常渲染，标记为"旧格式"，下次任何拉取后自动升级。
+移除 `signature`。**旧格式（含 `signature` + 单页 `items`）SHALL 被视为无效并丢弃重建**——部分数据无保留价值，不渲染、不兼容、不升级迁移。
 
 ### D3: 打开决策（简化后的 decideBrowseView）
 
 - 新格式全量缓存（`kind === 'full'`）存在且新鲜（`fetchedAt` + 写入时快照的 `ttlMinutes`，快照防止用户中途改 TTL 造成判定漂移）→ `{ render: true, refresh: false }`（零请求）。
 - 新格式缓存过期 → `{ render: true, refresh: true }`（先渲染旧数据，后台拉全量替换）。
-- **旧格式缓存（单视图、30 条部分数据）→ `{ render: true, refresh: true }`：渲染旧数据供首屏，后台立即拉全量升级**——旧格式不得走零请求路径（否则客户端过滤会在部分数据上静默缺结果，且永不升级；对齐 spec「旧缓存兼容」）。
+- **旧格式 / 未知格式缓存（无 `kind === 'full'`）→ 视为无缓存：直接丢弃，走初始化态拉取全量（不渲染旧数据、无兼容路径）。**
 - 无缓存 → `{ render: false }`：显示初始化态（骨架 + 文案），全量到位后渲染。
 - 例外：收藏/同步成功 → 强制重拉全量（`refreshBrowseCacheAfterMutation` 保留"等待在途任务"语义）；手动刷新按钮 → 强制重拉。
 
@@ -48,7 +48,7 @@
 
 - `filterBrowseItems(items, view)`：按 keyword（name/url/catelog 子串，大小写不敏感）、catelog（含子孙分类集合，复用分类树）、sort（默认站点序/hits/last_visit/name）过滤 + 排序，返回全量过滤结果。**守卫：仅对 `kind === 'full'` 的新格式缓存生效；缓存非 full 时任何视图切换动作（分类/搜索/排序/加载更多）不得对部分数据过滤，须先等待或触发全量拉取。**
 - 分页渲染：`paginateItems(items, page, pageSize=30)` 切片，`total` 本地计算，"加载更多"变纯客户端追加。
-- 决策矩阵 `decideBrowseView` 重写为 D3 语义；旧测试用例更新，新增过滤/分页/旧格式兼容用例。
+- 决策矩阵 `decideBrowseView` 重写为 D3 语义；旧测试用例更新，新增过滤/分页/旧格式无效重建用例。
 
 ### D5: 初始化态 UI
 
