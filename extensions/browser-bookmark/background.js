@@ -49,13 +49,19 @@ async function warmBrowseCache() {
   }
 }
 
-// 创建右键菜单（标题跟随站点设置名，未连接时用默认名）
+// 创建右键菜单（标题跟随站点设置名，未连接时用默认名）。
+// 先 update 再 create：扩展重载/更新会再次触发 onInstalled，此时菜单已存在，
+// 同 id 重复 create 抛 'duplicate id' 且安装时的旧标题（StarNav）残留；
+// update 失败（菜单确实不存在）才 create。
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.sync.get(['siteName'], ({ siteName }) => {
-    chrome.contextMenus.create({
-      id: "starnav-collect",
-      title: `收藏当前网页到 ${siteName || 'StarNav'}`,
-      contexts: ["page", "link"]
+    const title = `收藏当前网页到 ${siteName || 'StarNav'}`;
+    chrome.contextMenus.update("starnav-collect", { title }).catch(() => {
+      chrome.contextMenus.create({
+        id: "starnav-collect",
+        title,
+        contexts: ["page", "link"],
+      });
     });
   });
   warmBrowseCache();
