@@ -20,7 +20,7 @@
 - 不 purge 主站边缘缓存（靠 s-maxage=60 自动过期）。
 - 不做定时全量扫描补图标（仅点击触发）。
 - 不覆盖已有图标（只补 `logo` 空的）。
-- 不改变 `getFavicon` 的 5 源抓取策略。
+- 不改变 `getFavicon` 的源抓取策略（6 源：5 聚合/标准源 + 源站 HTML 解析，实现期新增 HTML 源为诊断驱动，见第 5 组任务）。
 
 ## Decisions
 
@@ -42,7 +42,7 @@ KV `favicon:failed:{id}` 无 TTL。`bulkRefreshSiteFavicons` 处理每站（成�
 - 替代 24h TTL：用户明确"抓不到就不抓了 不用重试"——永久放弃，避免死链站反复烧外部 API。
 
 ### D5：插件 background 中转 + 本地 patch
-popup 浏览点击：该条缓存 logo 空时 `chrome.runtime.sendMessage({type:'ensure-favicon', siteId})`（fire-and-forget，popup 关闭后 background 接管）。background `onMessage`：查缓存该条 logo 已非空 → 直接返回（省请求）；否则带 token 调 D3 接口（28s 超时——大于服务端 getFavicon 5 源最坏 ~25s，保证慢站也能收敛；异常区分 timeout/network 记入调试记录）→ 拿到 favicon URL（updated 或 has-logo 均算）时 patch `items[i].logo` 写回 chrome.storage.local。
+popup 浏览点击：该条缓存 logo 空时 `chrome.runtime.sendMessage({type:'ensure-favicon', siteId})`（fire-and-forget，popup 关闭后 background 接管）。background `onMessage`：查缓存该条 logo 已非空 → 直接返回（省请求）；否则带 token 调 D3 接口（28s 超时——接近服务端 6 源最坏 30s；多数场景前几个源即命中远快于此，慢站第 6 源极端情况可能被客户端截断，此时服务端无标记、下次点击再试，无害；异常区分 timeout/network 记入调试记录）→ 拿到 favicon URL（updated 或 has-logo 均算）时 patch `items[i].logo` 写回 chrome.storage.local。
 - 替代：background 补完重拉全量缓存——多一次 `/api/config?all=1`；用户选本地局部更新（零额外请求）。
 
 ### D6：主站缓存不 purge
@@ -50,8 +50,8 @@ popup 浏览点击：该条缓存 logo 空时 `chrome.runtime.sendMessage({type:
 
 ## Risks / Trade-offs
 
-- **外部抓取成本**：每次无图标书签点击最多 1 次 `getFavicon`（5 源串行）；成功一次后 logo 非空不再触发，失败被永久标记——成本收敛。
-- **waitUntil 预算**：`getFavicon` 最坏 5 个外部 fetch 串行可能超出 CF waitUntil 预算（30s）——被截断只是本次没补上，下次点击重试（无标记时），无害。
+- **外部抓取成本**：每次无图标书签点击最多 1 次 `getFavicon`（6 源串行）；成功一次后 logo 非空不再触发，失败被永久标记——成本收敛。
+- **waitUntil 预算**：`getFavicon` 最坏 6 个外部 fetch 串行（各 5s 上限，共 ~30s）恰在 CF waitUntil 预算边缘——被截断只是本次没补上，下次点击重试（无标记时），无害。
 - **插件 token 泄漏面**：新接口 token+scope=write 可调；接口只写 logo 且幂等，滥用面小（最多把某站 logo 改成任意 URL——注入 SVG 风险需留意，但 logo 渲染路径已有 sanitize 先例？`sanitizeCategorySvgIcon` 针对分类图标；站点卡片 logo 为 `<img>` 渲染，URL 来自外部 favicon 源同理——维持现有信任模型，不新增）。
 - **并发竞态**：同站并发点击重复抓取 → 幂等 UPDATE，无害。
 - **插件缓存陈旧**：补完 patch 后缓存该项即新；其他视图的搜索/排序客户端过滤基于同一 items 数组，logo 字段即时生效。

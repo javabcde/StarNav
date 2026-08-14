@@ -215,6 +215,28 @@ async function loadConfig() {
   renderDatalist(els.tagList, config.tags || [], (item) => item.name || item.tag || item);
 }
 
+async function syncSiteNameSilently() {
+  const baseUrl = config.baseUrl ? String(config.baseUrl).replace(/\/$/, '') : '';
+  if (!baseUrl) return;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    const res = await fetch(`${baseUrl}/api/settings/public`, { signal: controller.signal });
+    if (!res.ok) return;
+    const data = await res.json();
+    const siteName = String((data && (data.data?.siteName || data.siteName)) || '').trim();
+    if (siteName && siteName !== config.siteName) {
+      await chrome.storage.sync.set({ siteName });
+      config.siteName = siteName; // 本地立即生效（标题/提示）
+      applySiteName();
+    }
+  } catch {
+    // 拉取失败静默：沿用已存值/默认名
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // 用站点设置里的名字替换写死的 StarNav（options 连接时已存 storage.sync.siteName）
 // 注意：只改文本 span 的 textContent，避免覆盖 h1 内的主站跳转按钮
 function applySiteName() {
@@ -251,6 +273,11 @@ async function initPopup() {
   }
 
   setStatus('插件已就绪。');
+
+  // 静默同步站点名：服务端设置改名后无需重新连接，popup 打开即拉取更新
+  // （/api/settings/public 公开接口无需 token）；storage 值变更触发
+  // background onChanged → contextMenus.update，右键菜单标题自动跟随
+  syncSiteNameSilently().catch(() => {});
 
   // 图标补全调试可见化：上次点击补全失败（10 分钟内）时显示原因。
   // 必须在 setStatus('插件已就绪。') 之后执行，否则会被其覆盖（reviewer F1）。
