@@ -225,6 +225,11 @@ async function initPopup() {
   await loadConfig();
   restoreCachedExtensionIcon().catch(() => {});
 
+  // 恢复上次浏览视图（分类/搜索/排序），与缓存签名对齐，打开即命中缓存
+  restoreBrowseView();
+  if (els.browseSearch) els.browseSearch.value = browseState.keyword;
+  if (els.browseSort) els.browseSort.value = browseState.sort;
+
   // 站内浏览：缓存命中直接显示本地数据，未命中/过期才拉取（错误在浏览视图内展示）
   loadBrowseView().catch(() => {});
 
@@ -754,6 +759,7 @@ async function loadBrowse(reset = false, { skipCache = false, silent = false } =
     browseState.page += 1;
     renderBrowseList();
     if (reset) {
+      saveBrowseView();
       // 拉取到新数据即替换本地缓存（含分类），下次打开命中缓存直接显示
       await writeBrowseCache({ signature: browseSignature(), fetchedAt: Date.now(), items: list, total, page: browseState.page, categories: browseCategories });
     }
@@ -773,18 +779,46 @@ async function loadBrowse(reset = false, { skipCache = false, silent = false } =
 
 let browseCategories = [];
 
+// 上次浏览视图（分类/搜索/排序）：恢复后与缓存签名对齐，打开即命中
+const BROWSE_VIEW_KEY = 'browse:view:v1';
+function saveBrowseView() {
+  try {
+    localStorage.setItem(BROWSE_VIEW_KEY, JSON.stringify({
+      catelog: browseState.catelog,
+      keyword: browseState.keyword,
+      sort: browseState.sort,
+      ts: Date.now(),
+    }));
+  } catch {
+    // 存储不可用不影响浏览
+  }
+}
+function restoreBrowseView() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(BROWSE_VIEW_KEY) || 'null');
+    if (!saved) return;
+    browseState.catelog = String(saved.catelog || '');
+    browseState.keyword = String(saved.keyword || '');
+    browseState.sort = String(saved.sort || '');
+  } catch {
+    // 解析失败用默认视图
+  }
+}
+
 // 打开浏览视图：缓存存在即先渲染（含分类），过期缓存后台静默刷新，
-// 无缓存才走完整拉取（先分类后列表，保证缓存带分类）。
+// 无缓存时分类与列表请求并行发起（不再串行等待两个请求）。
 async function loadBrowseView() {
   const cache = await readBrowseCache();
   if (cache && cache.signature === browseSignature()) {
     browseState.total = cache.total;
     browseState.items = cache.items;
     browseState.page = cache.page || 2;
-    if (Array.isArray(cache.categories)) browseCategories = normalizeCategories(cache.categories);
+    if (Array.isArray(cache.categories) && cache.categories.length) browseCategories = normalizeCategories(cache.categories);
     renderBrowseList();
     renderCategories();
     updateBrowseMore();
+    // 并行拉取竞态兜底：缓存里分类为空时补拉一次
+    if (!browseCategories.length) loadCategories().catch(() => {});
     if (!isBrowseCacheFresh(cache)) {
       // stale-while-revalidate：先显示旧数据，后台静默刷新
       loadCategories().catch(() => {});
@@ -792,8 +826,10 @@ async function loadBrowseView() {
     }
     return;
   }
-  await loadCategories();
-  await loadBrowse(true);
+  await Promise.all([
+    loadCategories().catch(() => {}),
+    loadBrowse(true).catch(() => {}),
+  ]);
 }
 
 // 展平分类树为 [{ name, level }]，渲染父子层级；保持服务端排序
