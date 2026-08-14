@@ -172,19 +172,26 @@ async function ensureFaviconForSite(siteId) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20000);
   let result;
+  let httpStatus = 0;
   try {
     const res = await fetch(`${baseUrl}/api/site/${encodeURIComponent(siteId)}/ensure-favicon`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
       signal: controller.signal,
     });
+    httpStatus = res.status;
     const data = await res.json().catch(() => ({}));
     result = data && data.data;
   } finally {
     clearTimeout(timer);
   }
   if (!result || !result.updated || !result.favicon) {
-    return { ok: false, reason: result ? result.reason : 'request-failed' };
+    const reason = result ? result.reason : `http-${httpStatus}`;
+    // 调试可见化：popup 下次打开时显示失败原因（10 分钟内）
+    await chrome.storage.local.set({
+      'favicon:debug:last': { siteId: Number(siteId), at: Date.now(), ok: false, reason, httpStatus },
+    }).catch(() => {});
+    return { ok: false, reason };
   }
 
   // 本地 patch：只改该条 logo，零额外全量请求；下次打开 popup 直接见图标
