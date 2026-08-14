@@ -30,6 +30,7 @@ const els = {
   browseSort: document.getElementById('browseSort'),
   browseRefresh: document.getElementById('browseRefresh'),
   browseCats: document.getElementById('browseCats'),
+  browseCatChildren: document.getElementById('browseCatChildren'),
   browseList: document.getElementById('browseList'),
   browseMore: document.getElementById('browseMore'),
   browseStatus: document.getElementById('browseStatus'),
