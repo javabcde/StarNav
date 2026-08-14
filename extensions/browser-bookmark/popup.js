@@ -805,11 +805,11 @@ function restoreBrowseView() {
   }
 }
 
-// 打开浏览视图：缓存存在即先渲染（含分类），过期缓存后台静默刷新，
-// 无缓存时分类与列表请求并行发起（不再串行等待两个请求）。
+// 打开浏览视图：缓存存在即渲染（不限视图签名，含过期），随后后台按
+// 当前视图拉取替换；完全无缓存才走并行拉取。
 async function loadBrowseView() {
   const cache = await readBrowseCache();
-  if (cache && cache.signature === browseSignature()) {
+  if (cache && cache.fetchedAt) {
     browseState.total = cache.total;
     browseState.items = cache.items;
     browseState.page = cache.page || 2;
@@ -819,8 +819,8 @@ async function loadBrowseView() {
     updateBrowseMore();
     // 并行拉取竞态兜底：缓存里分类为空时补拉一次
     if (!browseCategories.length) loadCategories().catch(() => {});
-    if (!isBrowseCacheFresh(cache)) {
-      // stale-while-revalidate：先显示旧数据，后台静默刷新
+    // 签名不同（换视图）或缓存过期 → 后台静默刷新为当前视图
+    if (cache.signature !== browseSignature() || !isBrowseCacheFresh(cache)) {
       loadCategories().catch(() => {});
       loadBrowse(true, { skipCache: true, silent: true }).catch(() => {});
     }
