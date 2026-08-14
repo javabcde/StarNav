@@ -2,6 +2,8 @@ const els = {
   name: document.getElementById('name'),
   url: document.getElementById('url'),
   desc: document.getElementById('desc'),
+  appTitle: document.getElementById('appTitle'),
+  syncHint: document.getElementById('syncHint'),
   catelog: document.getElementById('catelog'),
   tags: document.getElementById('tags'),
   visibility: document.getElementById('visibility'),
@@ -83,7 +85,7 @@ async function restoreCachedExtensionIcon() {
 
 async function apiFetch(path, options = {}) {
   const baseUrl = normalizeBaseUrl(config.baseUrl);
-  if (!baseUrl) throw new Error('请先在设置中填写 StarNav 地址');
+  if (!baseUrl) throw new Error(`请先在设置中填写 ${config.siteName || 'StarNav'} 地址`);
   if (!config.token) throw new Error('请先在设置中填写 Bearer Token');
 
   const res = await fetch(`${baseUrl}${path}`, {
@@ -196,6 +198,7 @@ async function loadConfig() {
     'defaultCategory',
     'defaultTags',
     'siteIcon',
+    'siteName',
     'browseCacheMinutes',
   ]);
   const localData = await chrome.storage.local.get([
@@ -204,9 +207,18 @@ async function loadConfig() {
   ]);
 
   config = { ...syncData, ...localData };
+  applySiteName();
 
   renderDatalist(els.categoryList, config.categories || [], (item) => item.name || item.catelog || item);
   renderDatalist(els.tagList, config.tags || [], (item) => item.name || item.tag || item);
+}
+
+// 用站点设置里的名字替换写死的 StarNav（options 连接时已存 storage.sync.siteName）
+function applySiteName() {
+  const siteName = config.siteName || 'StarNav';
+  document.title = `收藏到 ${siteName}`;
+  if (els.appTitle) els.appTitle.textContent = `收藏到 ${siteName}`;
+  if (els.syncHint) els.syncHint.textContent = `把浏览器收藏夹里的书签同步到 ${siteName} 网站，以浏览器为基准；网站上的手动书签不会被覆盖。`;
 }
 
 async function initPopup() {
@@ -226,7 +238,7 @@ async function initPopup() {
   els.tags.value = config.defaultTags || '';
 
   if (!config.baseUrl || !config.token) {
-    setStatus('请先打开设置，填写 StarNav 地址和 Token。', 'error');
+    setStatus(`请先打开设置，填写 ${config.siteName || 'StarNav'} 地址和 Token。`, 'error');
     return;
   }
 
@@ -325,7 +337,7 @@ async function saveBookmark({ force = false } = {}) {
   });
 
   showDuplicate(null);
-  setStatus(`已保存到 StarNav：${payload.name}`, 'success');
+  setStatus(`已保存到 ${config.siteName || 'StarNav'}：${payload.name}`, 'success');
   return result;
 }
 

@@ -616,7 +616,7 @@
 <body>
   <main>
     <header>
-      <h1>收藏到 StarNav</h1>
+      <h1 id="appTitle">收藏到 StarNav</h1>
       <button id="optionsBtn" title="设置">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
           <path d="M5 4a1 1 0 00-2 0v7.268a2 2 0 000 3.464V16a1 1 0 102 0v-1.268a2 2 0 000-3.464V4zM11 4a1 1 0 10-2 0v1.268a2 2 0 000 3.464V16a1 1 0 102 0V8.732a2 2 0 000-3.464V4zM16 3a1 1 0 011 1v7.268a2 2 0 010 3.464V16a1 1 0 11-2 0v-1.268a2 2 0 010-3.464V4a1 1 0 011-1z" />
@@ -717,7 +717,8 @@
     <!-- 同步视图：原有一键同步 -->
     <section id="sync-view" class="view" hidden>
       <div class="sync-section">
-        <button id="syncBtn" class="secondary" title="将浏览器书签一键同步到 StarNav">一键同步</button>
+        <div class="sync-hint" id="syncHint">把浏览器收藏夹里的书签同步到 StarNav 网站，以浏览器为基准；网站上的手动书签不会被覆盖。</div>
+        <button id="syncBtn" class="primary full">将浏览器书签同步到网站</button>
         <div id="syncResult"></div>
       </div>
     </section>

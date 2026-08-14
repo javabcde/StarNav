@@ -47,14 +47,25 @@ async function warmBrowseCache() {
   }
 }
 
-// 创建右键菜单
+// 创建右键菜单（标题跟随站点设置名，未连接时用默认名）
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: "starnav-collect",
-    title: "收藏当前网页到 StarNav",
-    contexts: ["page", "link"]
+  chrome.storage.sync.get(['siteName'], ({ siteName }) => {
+    chrome.contextMenus.create({
+      id: "starnav-collect",
+      title: `收藏当前网页到 ${siteName || 'StarNav'}`,
+      contexts: ["page", "link"]
+    });
   });
   warmBrowseCache();
+});
+
+// 站点名变化时更新右键菜单标题
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'sync' && changes.siteName) {
+    chrome.contextMenus.update("starnav-collect", {
+      title: `收藏当前网页到 ${changes.siteName.newValue || 'StarNav'}`,
+    }).catch(() => {});
+  }
 });
 
 // 浏览器启动时预热（MV3 service worker 由事件唤醒）
@@ -68,10 +79,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const name = tab.title || "未命名网页";
 
   // 获取配置
-  chrome.storage.sync.get(["apiUrl", "apiToken", "defaultCategory"], async (settings) => {
+  chrome.storage.sync.get(["apiUrl", "apiToken", "defaultCategory", "siteName"], async (settings) => {
     const apiUrl = settings.apiUrl ? settings.apiUrl.replace(/\/$/, "") : "";
     const apiToken = settings.apiToken || "";
     const defaultCategory = settings.defaultCategory || "未分类";
+    const siteName = settings.siteName || 'StarNav';
 
     if (!apiUrl || !apiToken) {
       showNotification("error", "收藏失败", "请先在插件选项中配置 API 地址和 Token！");
@@ -108,12 +120,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       if (response.status === 201 || result.code === 201) {
         showNotification("success", "收藏成功", `已成功收藏到分类「${defaultCategory}」！`);
       } else if (result.code === 409) {
-        showNotification("warning", "重复收藏", "该网页已在您的 StarNav 中收藏过啦！");
+        showNotification("warning", "重复收藏", `该网页已在您的 ${siteName} 中收藏过啦！`);
       } else {
         showNotification("error", "收藏失败", result.message || "服务器返回错误");
       }
     } catch (err) {
-      showNotification("error", "网络错误", "无法连接到您的 StarNav 实例，请检查网络或 API 地址。");
+      showNotification("error", "网络错误", `无法连接到您的 ${siteName} 实例，请检查网络或 API 地址。`);
     }
   });
 });
