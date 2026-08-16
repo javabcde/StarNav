@@ -1,7 +1,10 @@
 // 首页客户端脚本（含少量服务端插值，经 String.raw 保真输出；与 home/scripts.js 同模式）。
 // 插值面：主题/布局默认值、i18n 文案、admin 弹窗脚本、拖拽脚本、用量脚本、
 // 卡片契约常量（cardContract.js）与强调色表（accents.js）——均在生成期内插。
+// 客户端纯逻辑（转义/URL 归一/高亮/AI 文本/搜索历史）单一源在 ../clientLogic.js，
+// 经 toString() 生成期内联（2026-08-16 架构评审候选 2），禁止在模板内手写镜像副本。
 import { escapeHTML } from '../../lib/utils.js';
+import { escapeText, highlightText, mergeSearchHistory, normalizeAiText, normalizeClientUrl } from '../clientLogic.js';
 import { themeColorMap } from './accents.js';
 import { CARD_CONTRACT } from './cardContract.js';
 import { isDeadSite } from '../../services/healthQuery.js';
@@ -259,9 +262,7 @@ document.addEventListener('DOMContentLoaded',function(){
   function openActiveResult(){const cards=getVisibleResultCards();if(activeResultIndex<0||activeResultIndex>=cards.length)return false;const card=cards[activeResultIndex];const link=card?.querySelector('a[href]');if(!link)return false;const href=link.getAttribute('href')||'';if(!href||href==='#')return false;window.open(href,link.target||'_blank','noopener,noreferrer');return true}
   document.addEventListener('keydown',function(e){const key=e.key||'';if(key==='Escape'){closeFloatingThemePanel();closeFloatingAiPanel();closeModal();clearActiveResult();if(document.activeElement===search)search.blur();return}if((e.ctrlKey||e.metaKey)&&key.toLowerCase()==='k'){e.preventDefault();closeFloatingThemePanel();closeFloatingAiPanel();focusSiteSearch(true);return}if(key==='/'&&!isEditableTarget(e.target)&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();closeFloatingThemePanel();closeFloatingAiPanel();focusSiteSearch(false);return}if((key==='ArrowDown'||key==='ArrowUp'||key==='Enter')&&document.activeElement===search){const cards=getVisibleResultCards();if(!cards.length)return;if(key==='ArrowDown'){e.preventDefault();setActiveResult(activeResultIndex<0?0:activeResultIndex+1)}else if(key==='ArrowUp'){e.preventDefault();setActiveResult(activeResultIndex<0?cards.length-1:activeResultIndex-1)}else if(key==='Enter'){if(openActiveResult()){e.preventDefault()}}}});
   document.getElementById('sitesGrid')?.addEventListener('mousedown',clearActiveResult,{capture:true});
-  function normalizeAiText(text){return String(text||'').replace(/\*\*([^*]+)\*\*/g,'$1').replace(/__([^_]+)__/g,'$1').replace(/^\s*[-*]\s+/gm,'· ').replace(/\n{3,}/g,'\n\n').trim()}
   let lastAiSites=[];
-  function normalizeAiSiteUrl(v){const t=String(v||'').trim();return /^https?:\/\//i.test(t)?t:(/^[\w.-]+\.[\w.-]+/.test(t)?'https://'+t:'')}
   function createAiSiteCard(site){const card=document.createElement('div');card.className='ai-site-card rounded-xl border border-primary-100/70 bg-white/80 p-3 text-xs shadow-sm';const name=site.name||'未命名';const cat=site.catelog||'未分类';const desc=site.desc||'暂无描述';const rawUrl=site.url||'';const normalizedUrl=normalizeAiSiteUrl(rawUrl);const visitUrl=site.id?('/go/'+encodeURIComponent(site.id)):(normalizedUrl||'#');card.innerHTML='<div class="flex items-start justify-between gap-2"><div class="min-w-0 flex-1"><div class="truncate text-sm font-semibold text-gray-900"></div><div class="mt-1 inline-flex rounded-full bg-primary-50 px-2 py-0.5 text-[11px] text-primary-700"></div></div><span class="flex-shrink-0 rounded-full bg-accent-50 px-2 py-0.5 text-[10px] text-accent-700">本站书签</span></div><p class="mt-2 line-clamp-2 text-gray-600"></p><div class="mt-2 truncate text-[11px] text-primary-600"></div><div class="mt-3 flex gap-2"><a class="ai-card-visit flex-1 rounded-lg bg-primary-600 px-3 py-1.5 text-center font-medium text-white" target="_blank" rel="noopener noreferrer">访问</a><button type="button" class="ai-card-copy rounded-lg bg-accent-100 px-3 py-1.5 font-medium text-accent-700">复制</button></div>';card.querySelector('.text-sm').textContent=name;card.querySelector('.bg-primary-50').textContent=cat;card.querySelector('p').textContent=desc;card.querySelector('.text-primary-600').textContent=normalizedUrl||rawUrl||'未提供链接';const visit=card.querySelector('.ai-card-visit');visit.href=visitUrl;if(!normalizedUrl&&!site.id){visit.classList.add('pointer-events-none','opacity-50')}const copy=card.querySelector('.ai-card-copy');copy.dataset.url=normalizedUrl||rawUrl;return card}
   function appendAiMessage(role,text,sites){if(!aiChatBody)return;const msg=document.createElement('div');msg.className='ai-message '+role;msg.textContent=normalizeAiText(text);aiChatBody.appendChild(msg);if(role==='assistant'&&Array.isArray(sites)&&sites.length){lastAiSites=sites.slice(0,5).map(function(site){return{id:site.id}}).filter(function(site){return site.id});const wrap=document.createElement('div');wrap.className='space-y-2';sites.slice(0,6).forEach(function(site){wrap.appendChild(createAiSiteCard(site))});aiChatBody.appendChild(wrap)}aiChatBody.scrollTop=aiChatBody.scrollHeight}
   aiChatBody?.addEventListener('click',function(e){const btn=e.target.closest('.ai-card-copy');if(!btn)return;e.preventDefault();const url=btn.dataset.url;if(!url)return;const old=btn.textContent;navigator.clipboard.writeText(url).then(()=>{btn.textContent='已复制';setTimeout(()=>btn.textContent=old,1200)}).catch(()=>{btn.textContent='复制失败';setTimeout(()=>btn.textContent=old,1200)})});
@@ -417,11 +418,17 @@ document.addEventListener('DOMContentLoaded',function(){
   let searchTimer=null, searchController=null;
   function getSearchHistory(){try{return JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY)||'[]').filter(Boolean).slice(0,8)}catch{return[]}}
   function setSearchHistory(items){localStorage.setItem(SEARCH_HISTORY_KEY,JSON.stringify(items.slice(0,8)));renderSearchHistory()}
-  function addSearchHistory(kw){const term=String(kw||'').trim();if(!term)return;const items=[term,...getSearchHistory().filter(item=>item!==term)].slice(0,8);setSearchHistory(items)}
+  function addSearchHistory(kw){const term=String(kw||'').trim();if(!term)return;setSearchHistory(mergeSearchHistory(getSearchHistory(),term))}
   function renderSearchHistory(){if(!searchHistoryBox||!searchHistoryList)return;const items=getSearchHistory();searchHistoryBox.classList.toggle('hidden',!items.length);searchHistoryList.innerHTML=items.map(function(item){return '<button type="button" class="search-history-chip rounded-full bg-primary-50 px-2.5 py-1 text-[11px] text-primary-700 hover:bg-primary-100" data-keyword="'+escapeText(item)+'">'+escapeText(item)+'</button>'}).join('')}
-  function escapeText(v){return String(v??'').replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]})}
-  function highlightText(v,kw){const text=escapeText(v);if(!kw)return text;const safe=kw.replace(/[-\/\\^*+?.()|[\]{}]/g,'\\$&');try{return text.replace(new RegExp('('+safe+')','ig'),'<mark class="rounded bg-amber-100 px-0.5 text-amber-900">$1</mark>')}catch{return text}}
-  function normalizeClientUrl(v){const t=String(v||'').trim();return /^https?:\/\//i.test(t)?t:(/^[\w.-]+\.[\w.-]+/.test(t)?'https://'+t:'')}
+  // 客户端纯逻辑单一源：经 ../clientLogic.js toString() 生成期内联（2026-08-16 架构评审候选 2），
+  // 同一份源码被 node:test 直接单测；禁止在模板内手写镜像副本。
+  const escapeText = ${escapeText.toString()};
+  const normalizeClientUrl = ${normalizeClientUrl.toString()};
+  const highlightText = ${highlightText.toString()};
+  const normalizeAiText = ${normalizeAiText.toString()};
+  const mergeSearchHistory = ${mergeSearchHistory.toString()};
+  // AI 站卡渲染的历史别名：URL 归一单一源在 normalizeClientUrl（原 normalizeAiSiteUrl 副本已删除）
+  const normalizeAiSiteUrl = normalizeClientUrl;
   // 健康判定与 services/healthQuery.js 单一源：生成期内联谓词源码，禁止手写镜像副本
   const isClientUnhealthySite = ${isDeadSite.toString()};
   function renderClientHealthBadge(site){if(!site?.last_checked_at||!isClientUnhealthySite(site))return'';const details=[site.last_status_code?'HTTP '+site.last_status_code:'',site.last_error||'',site.last_checked_at?'${lastCheckedPrefix}'+String(site.last_checked_at).slice(0,19):''].filter(Boolean).join(' · ');return '<span class="${healthBadgeClass}" title="'+escapeText(details||'最近检测异常')+'">${healthBadgeLabel}</span>'}

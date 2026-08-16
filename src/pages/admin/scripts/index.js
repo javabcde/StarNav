@@ -1,8 +1,13 @@
+import { escapeText, normalizeClientUrl } from '../../clientLogic.js';
 import { isDeadSite, isUnknownSite } from '../../../services/healthQuery.js';
 
 export const adminJs = `
 const IS_DEAD_SITE=${isDeadSite.toString()};
 const IS_UNKNOWN_SITE=${isUnknownSite.toString()};
+// 客户端纯逻辑单一源：经 ../clientLogic.js toString() 生成期内联（2026-08-16 架构评审候选 2），
+// 同一份源码被 node:test 直接单测；禁止在模板内手写镜像副本。
+const escapeHTML=${escapeText.toString()};
+const normalizeUrl=${normalizeClientUrl.toString()};
 const $ = (id) => document.getElementById(id);
 (function initSidebarToggle(){const SIDEBAR_STATE_KEY='starnav:admin:sidebar-collapsed';function loadSidebarState(){try{return localStorage.getItem(SIDEBAR_STATE_KEY)==='true'}catch{return false}}function saveSidebarState(collapsed){try{localStorage.setItem(SIDEBAR_STATE_KEY,collapsed?'true':'false')}catch{}}const tabWrapper=document.querySelector('.tab-wrapper');const toggleBtn=$('sidebarToggle');if(!tabWrapper||!toggleBtn)return;const collapsed=loadSidebarState();if(collapsed)tabWrapper.classList.add('sidebar-collapsed');toggleBtn.addEventListener('click',()=>{const nowCollapsed=tabWrapper.classList.toggle('sidebar-collapsed');saveSidebarState(nowCollapsed);toggleBtn.title=nowCollapsed?'展开侧边栏':'收起侧边栏'});toggleBtn.title=collapsed?'展开侧边栏':'收起侧边栏'})();
 const configTableBody = $('configTableBody');
@@ -22,8 +27,6 @@ let pendingCurrentPage = 1, pendingPageSize = 10, pendingTotalItems = 0;
 let spacesData = [], categoriesData = [];
 let latestTagSuggestionPreview = null;
 
-function escapeHTML(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
-function normalizeUrl(v){const t=String(v||'').trim();return /^https?:\\/\\//i.test(t)?t:(/^[\\w.-]+\\.[\\w.-]+/.test(t)?'https://'+t:'')}
 function showMessage(message,type){messageDiv.innerText=message;messageDiv.className=type;messageDiv.style.display='block';setTimeout(()=>messageDiv.style.display='none',3000)}
 function showBulkResult(title,summary,items=[],type='success'){const panel=$('bulkResultPanel');if(!panel)return;panel.style.display='block';panel.className='bulk-result-panel '+(type==='error'?'bulk-result-error':'');const rows=(items||[]).slice(0,30).map(item=>{const ok=item.ok!==false;const id=item.id??item.siteId??'';const name=item.name||'';const detail=item.error||item.favicon||item.status_code||item.message||'';return '<div class="bulk-result-item"><div><strong>#'+escapeHTML(id)+(name?' · '+escapeHTML(name):'')+'</strong>'+(detail?'<small>'+escapeHTML(detail)+'</small>':'')+'</div><span class="health '+(ok?'health-ok':'health-bad')+'">'+(ok?'成功':'失败')+'</span></div>'}).join('');panel.innerHTML='<div class="bulk-result-head"><div><strong>'+escapeHTML(title)+'</strong><small>'+escapeHTML(summary||'')+'</small></div><button type="button" id="closeBulkResult" class="secondary-btn">收起</button></div>'+(rows?'<div class="bulk-result-list">'+rows+'</div>':'');$('closeBulkResult')?.addEventListener('click',()=>{panel.style.display='none'})}
 function setText(id,value){const el=$(id);if(el)el.textContent=value}

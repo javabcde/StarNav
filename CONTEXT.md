@@ -101,3 +101,9 @@ _Avoid_: 站点基础服务、共享 helper 层
 **布尔字符串归一 (Boolean String Normalization)**:
 设置存储值（字符串 'true'/'1'/'yes'/'on' 等）到布尔字符串的归一语义，单一持有在 `lib/utils.js`：宽松版 `boolString`（backup/sys settings 域共用，'1'/'true'/'yes'/'on' 均视为 true，空值回退 fallback）、严格版 `strictBoolString`（AI 设置域，仅字面量 'true' 视为 true，未知值不激活功能）。禁止在设置域内再写第三份判定。
 _Avoid_: parseBool、布尔解析
+
+## 页面客户端
+
+**客户端纯逻辑 (Client Pure Logic)**:
+首页与后台客户端脚本的共享纯函数，单一持有在 `pages/clientLogic.js`：HTML 转义、URL 归一、关键词高亮、AI 文本归一、搜索历史合并。经 `toString()` 生成期内联进客户端模板（首页 String.raw / 后台 adminJs），同一份源码被 node:test 直接单测；内联前提是函数体不含反引号与 `${`（clientScript.js 模块加载探针 + tests/clientLogic.test.js 回归锁守护）。卡片渲染等依赖生成期契约插值（CARD_CONTRACT）的逻辑留在模板内，不抽。
+_Avoid_: 客户端工具函数、内联脚本逻辑
