@@ -32,6 +32,21 @@
     local: ['categories', 'tags', 'metadataUpdatedAt'],
   };
 
+  // ── 图标自动补全契约（Icon Auto-Fill，术语见 CONTEXT.md）────────
+  // 客户端超时需大于服务端最坏抓取预算（getFavicon 5 源串行 × 每源 5s ≈ 25s）
+  // 且小于 Workers 请求 30s 上限；失败原因枚举与服务端 ensure-favicon 的 reason 对齐。
+  const ICON_TIMEOUT_MS = 28000;
+  const ICON_FAILURE_REASONS = {
+    HAS_LOGO: 'has-logo',
+    ALREADY_FAILED: 'already-failed',
+    NO_FAVICON: 'no-favicon',
+    ERROR: 'error',
+    NO_SITE: 'no-site',
+    FILLED: 'filled',
+  };
+  // 调试可见化窗口：popup 显示 background 记录的最近一次补全失败原因的有效期
+  const ICON_DEBUG_TTL_MS = 10 * 60 * 1000;
+
   function normalizeBaseUrl(value) {
     return String(value || '').trim().replace(/\/+$/g, '');
   }
@@ -109,6 +124,9 @@
     MESSAGE_TYPES,
     STORAGE_KEYS,
     CONFIG_KEYS,
+    ICON_TIMEOUT_MS,
+    ICON_FAILURE_REASONS,
+    ICON_DEBUG_TTL_MS,
     normalizeBaseUrl,
     apiFetch,
     buildCollectPayload,

@@ -172,12 +172,11 @@ async function ensureFaviconForSite(siteId) {
   const cache = cached[Contract.BROWSE_CACHE_KEY];
   if (BrowseLogic.isFullBrowseCache(cache)) {
     const item = cache.items.find((s) => Number(s.id) === Number(siteId));
-    if (item && item.logo) return { ok: false, reason: 'has-logo' };
+    if (item && item.logo) return { ok: false, reason: Contract.ICON_FAILURE_REASONS.HAS_LOGO };
   }
 
-  // 28s 超时：服务端 getFavicon 5 源串行（每源 5s 上限，最坏 ~25s），
-  // 客户端需大于服务端最坏耗时才能收敛（20s 会让慢站永远补不上）；
-  // 仍小于 Workers 请求 30s 限制。失败静默——下次点击再试
+  // 超时预算来自契约（ICON_TIMEOUT_MS）：服务端 5 源串行 × 每源 5s 的最坏耗时
+  // 与 Workers 30s 上限都在契约注释里维护，客户端不再自算/自写魔数
   let result;
   let httpStatus = 0;
   let timedOut = false;
@@ -185,7 +184,7 @@ async function ensureFaviconForSite(siteId) {
     const data = await Contract.apiFetch(`/api/site/${encodeURIComponent(siteId)}/ensure-favicon`, {
       baseUrl,
       token,
-      timeoutMs: 28000,
+      timeoutMs: Contract.ICON_TIMEOUT_MS,
       method: 'POST',
     });
     result = data && data.data;

@@ -238,7 +238,7 @@
   /**
    * 视图持久化反序列化：非法输入回退 null（调用方保持默认视图）。
    * 字段按既有语义 String 强转。序列化形状由 DOM 层持有（源码锁约束，
-   * 见 popup-view-persist.test.js：catelog/keyword/sort + ts）。
+   * 见 tests/popup-view-mount.test.js 的浏览视图冒烟：catelog/keyword/sort + ts）。
    * @param {string|null} raw localStorage 原文
    */
   function deserializeView(raw) {

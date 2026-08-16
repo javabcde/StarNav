@@ -24,6 +24,20 @@ test('契约常量：缓存键/形状字段/TTL 默认/存储键/消息类型/�
   assert.ok(Contract.CONFIG_KEYS.local.includes('categories'));
 });
 
+test('契约常量：图标超时/失败原因枚举与 worker 侧语义对齐', () => {
+  // 超时预算必须大于服务端最坏抓取耗时（5 源串行 × 5s）且小于 Workers 30s 上限
+  assert.ok(Contract.ICON_TIMEOUT_MS > 25 * 1000);
+  assert.ok(Contract.ICON_TIMEOUT_MS < 30 * 1000);
+  // 原因枚举与服务端 ensure-favicon 的 reason 逐字对齐（iconService.js）
+  assert.equal(Contract.ICON_FAILURE_REASONS.HAS_LOGO, 'has-logo');
+  assert.equal(Contract.ICON_FAILURE_REASONS.ALREADY_FAILED, 'already-failed');
+  assert.equal(Contract.ICON_FAILURE_REASONS.NO_FAVICON, 'no-favicon');
+  assert.equal(Contract.ICON_FAILURE_REASONS.ERROR, 'error');
+  assert.equal(Contract.ICON_FAILURE_REASONS.NO_SITE, 'no-site');
+  assert.equal(Contract.ICON_FAILURE_REASONS.FILLED, 'filled');
+  assert.equal(Contract.ICON_DEBUG_TTL_MS, 10 * 60 * 1000);
+});
+
 test('normalizeBaseUrl：去尾部斜杠与空白', () => {
   assert.equal(Contract.normalizeBaseUrl('https://nav.example.com/'), 'https://nav.example.com');
   assert.equal(Contract.normalizeBaseUrl('  https://nav.example.com///  '), 'https://nav.example.com');
