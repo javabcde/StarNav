@@ -7,7 +7,7 @@ import { cleanText, normalizeSortOrder } from '../lib/utils.js';
 import { upsertCategoryByName } from './categoryService.js';
 import { setSiteTags } from './tagService.js';
 import { logOperation, OPERATION_LOG_ACTIONS } from './operationLogService.js';
-import { getAllSites, normalizeDuplicateUrlKey, normalizeSitePayload } from './siteService.js';
+import { getAllSites, normalizeDuplicateUrlKey, normalizeSitePayload } from './siteCore.js';
 
 export function normalizeImportPayload(jsonData) {
   if (Array.isArray(jsonData)) {

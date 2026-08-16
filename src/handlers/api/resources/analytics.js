@@ -1,7 +1,8 @@
 // 统计资源模块（analytics）：搜索/站点/投稿三类统计（管理员）。
 import { jsonResponse } from '../../../lib/utils.js';
 import { requireAdmin } from '../errors.js';
-import { getSearchAnalytics, getSiteAnalytics, getSubmissionAnalytics } from '../../../services/siteService.js';
+import { getSearchAnalytics, getSiteAnalytics } from '../../../services/siteService.js';
+import { getSubmissionAnalytics } from '../../../services/submissionService.js';
 
 /** GET /analytics/search — 搜索词统计（管理员）。 */
 export async function search(request, env, ctx, path, method, id, url) {

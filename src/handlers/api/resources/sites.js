@@ -16,26 +16,21 @@ import { bulkRefreshSiteFavicons, ensureSiteFavicon } from '../../../services/ic
 import { bulkCheckSiteHealth, checkSiteHealth } from '../../../services/siteHealthService.js';
 import { sitesToBookmarkHtml, sitesToCsv } from '../sites.js';
 import {
-  approvePendingSite,
   bulkDeleteSites,
   bulkUpdateSites,
   createSite,
   deleteSite,
-  exportConfig,
-  findDuplicateSite,
-  getPendingSites,
   getSite,
   getSites,
-  importSites,
-  previewImportSites,
-  rejectPendingSite,
+  listSitesByIds,
   recordSearchTerm,
   reorderSites,
   searchSites,
-  listSitesByIds,
-  submitSite,
   updateSite,
 } from '../../../services/siteService.js';
+import { approvePendingSite, getPendingSites, rejectPendingSite, submitSite } from '../../../services/submissionService.js';
+import { exportConfig, importSites, previewImportSites } from '../../../services/transferService.js';
+import { findDuplicateSite } from '../../../services/siteCore.js';
 
 /** GET /favicon?url= — 公开图标抓取（纯转发，策略见图标自动补全模块）。 */
 export async function faviconFetch(request, env, ctx, path, method, id, url) {

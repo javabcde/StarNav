@@ -14,7 +14,7 @@ import {
   getPrependSortOrder,
   normalizeDuplicateUrlKey,
   normalizeSitePayload,
-} from './siteService.js';
+} from './siteCore.js';
 
 function parseStoredTags(value) {
   if (Array.isArray(value)) return normalizeTags(value);

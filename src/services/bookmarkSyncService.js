@@ -1,5 +1,5 @@
 import { cleanText } from '../lib/utils.js';
-import { normalizeDuplicateUrlKey } from './siteService.js';
+import { normalizeDuplicateUrlKey } from './siteCore.js';
 import { upsertCategoryByName } from './categoryService.js';
 import { logOperation, OPERATION_LOG_ACTIONS } from './operationLogService.js';
 

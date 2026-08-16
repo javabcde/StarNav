@@ -85,7 +85,8 @@ Local run needs real D1/KV IDs in `wrangler.toml` (placeholders `REPLACE_WITH_YO
 | `src/index.js` | Worker entry, router, security-header wrapper, scheduled handler |
 | `src/handlers/api.js` | All REST API routes (auth gate, JSON parsing, error mapping) |
 | `src/handlers/api/errors.js` | `requireAdmin` + `handleApiError` — the error contract |
-| `src/services/siteService.js` | Core bookmark domain: CRUD, visibility, search scoring, analytics (health checks in siteHealthService, preview in lib/sitePreview.js) |
+| `src/services/siteService.js` | Core bookmark domain: CRUD, visibility, search scoring, analytics (health checks in siteHealthService, preview in lib/sitePreview.js, shared primitives in `siteCore.js`) |
+| `src/services/siteCore.js` | Site-core neutral layer (ADR 0008): row projection, visibility predicates, payload/URL-key normalization, dedup, prepend sort order, full read — consumed by siteService/submission/transfer, no back-imports |
 | `src/lib/auth.js` | Admin sessions + password/throttle (API tokens in `lib/apiTokenService.js`, cookie parsing in `lib/cookie.js`) |
 | `src/services/aiSettingsService.js` | AI settings domain (`ai.*` keys; batch read/write over `settingsService` adapter — sibling of `systemSettingsService`) |
 | `src/services/siteHealthService.js` | Site health-check execution (predicates live in `healthQuery.js`) |

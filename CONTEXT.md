@@ -91,3 +91,13 @@ _Avoid_: 收藏夹浏览、插件浏览
 **全量缓存 (Full Cache)**:
 插件站内浏览的本地缓存格式（`browse:cache:v1`）：`{ kind: 'full', fetchedAt, ttlMinutes, items, total, categories }`，存于 `chrome.storage.local`，popup 与 background 共用（预热写入、浏览渲染、图标补全本地 patch 同一份数据）。形状/键名契约由 `extension-contract.js` 持有，形状判定与过滤分页逻辑在 `popup-logic.js`。旧格式（无 `kind: 'full'`）视为无效、首次打开重建。
 _Avoid_: 浏览缓存、缓存格式
+
+## 站点域分层
+
+**站点核心 (Site Core)**:
+sites 表基础共享原语的中立层，单一持有在 `services/siteCore.js`：规范行投影（SITE_SELECT_COLUMNS）、可见性谓词应用、载荷规范化、去重键、重复点查、排序前置、全量读取。站点 CRUD（siteService）、投稿域（submissionService）、导入导出域（transferService）共同消费，本层不反向依赖三者——模块图保持单向。siteService 保留同名 re-export 垫片维持存量测试与调用方导入面（决策见 ADR-0008）。
+_Avoid_: 站点基础服务、共享 helper 层
+
+**布尔字符串归一 (Boolean String Normalization)**:
+设置存储值（字符串 'true'/'1'/'yes'/'on' 等）到布尔字符串的归一语义，单一持有在 `lib/utils.js`：宽松版 `boolString`（backup/sys settings 域共用，'1'/'true'/'yes'/'on' 均视为 true，空值回退 fallback）、严格版 `strictBoolString`（AI 设置域，仅字面量 'true' 视为 true，未知值不激活功能）。禁止在设置域内再写第三份判定。
+_Avoid_: parseBool、布尔解析

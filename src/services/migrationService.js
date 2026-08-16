@@ -1,4 +1,4 @@
-import { normalizeDuplicateUrlKey } from './siteService.js';
+import { normalizeDuplicateUrlKey } from './siteCore.js';
 
 // 部署链路（GitHub Actions）每次 push 已执行幂等 schema.sql（wrangler d1 execute --file=schema.sql）。
 // 运行时迁移仅对「全新 D1（无 KV 标记）」或「SCHEMA_MIGRATION_VERSION 升级」补跑。

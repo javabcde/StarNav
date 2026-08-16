@@ -1,6 +1,6 @@
 import { escapeHTML, htmlResponse, isSubmissionEnabled, sanitizeImageUrl, sanitizeUrl } from '../lib/utils.js';
 import { resolveI18n } from '../lib/i18n.js';
-import { getAllSites } from '../services/siteService.js';
+import { getAllSites } from '../services/siteCore.js';
 import { getAccessContext } from '../services/accessService.js';
 import { collectCategoryWithDescendants, getCategoryTree } from '../services/categoryService.js';
 import { getSystemSettings } from '../services/systemSettingsService.js';
