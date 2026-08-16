@@ -1,4 +1,4 @@
-import { cleanText, sanitizeImageUrl, sanitizeUrl } from '../lib/utils.js';
+import { boolString, cleanText, limitText as limitTextByMax, sanitizeImageUrl, sanitizeUrl } from '../lib/utils.js';
 import { listSettings, setSetting } from './settingsService.js';
 
 const SYSTEM_SETTING_PREFIX = 'system.';
@@ -41,14 +41,8 @@ const FIELD_LIMITS = {
   announcementButtonText: 40,
 };
 
-function boolString(value, fallback = 'false') {
-  if (value === undefined || value === null || value === '') return fallback;
-  return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase()) ? 'true' : 'false';
-}
-
 function limitText(value, key) {
-  const limit = FIELD_LIMITS[key] || 1000;
-  return cleanText(value).slice(0, limit);
+  return limitTextByMax(value, FIELD_LIMITS[key] || 1000);
 }
 
 export async function getSystemSettings(env) {

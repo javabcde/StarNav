@@ -1,5 +1,5 @@
 import { escapeHTML } from './utils.js';
-import { parseCookies } from './cookie.js';
+import { LANGUAGE_COOKIE, parseCookies } from './cookie.js';
 
 // 仅保留已提供完整翻译的语言；新增语言时请同步在 I18N_MESSAGES 补齐对应文案。
 export const SUPPORTED_LANGUAGES = [
@@ -8,7 +8,6 @@ export const SUPPORTED_LANGUAGES = [
 ];
 
 const SUPPORTED_CODES = new Set(SUPPORTED_LANGUAGES.map((item) => item.code));
-const LANGUAGE_COOKIE = 'nav_lang';
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
 export const I18N_MESSAGES = {

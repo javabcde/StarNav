@@ -70,10 +70,10 @@ export function htmlResponse(html, status = 200, headers = {}) {
   });
 }
 
-export function textResponse(text, status = 200) {
+export function textResponse(text, status = 200, headers = {}) {
   return new Response(text, {
     status,
-    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    headers: { 'Content-Type': 'text/plain; charset=utf-8', ...headers },
   });
 }
 
@@ -142,6 +142,25 @@ export function cleanText(value, fallback = '') {
 export function nullableText(value) {
   const cleaned = cleanText(value);
   return cleaned || null;
+}
+
+// 布尔字符串归一（宽松）：'1'/'true'/'yes'/'on'（忽略大小写与首尾空白）视为 'true'，
+// 空值回退 fallback。2026-08-16 架构评审候选 3：backupService 与 systemSettingsService
+// 的逐字副本收编至此——同一存储值同一判定。
+export function boolString(value, fallback = 'false') {
+  if (value === undefined || value === null || value === '') return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase()) ? 'true' : 'false';
+}
+
+// 严格布尔归一：仅字面量 'true' 视为 'true'，其余一律 'false'。AI 设置域语义
+// （未知/历史值不激活功能，见 aiSettingsService）——与宽松版同源但显式命名。
+export function strictBoolString(value) {
+  return String(value) === 'true' ? 'true' : 'false';
+}
+
+// 文本截断：cleanText 后按 max 截断（limitText 基础原语，按 key 查限长属各设置域本地知识）。
+export function limitText(value, max) {
+  return cleanText(value).slice(0, max);
 }
 
 /**

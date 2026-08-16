@@ -1,3 +1,4 @@
+import { hashString, textResponse } from '../lib/utils.js';
 import { getAccent } from '../pages/home/accents.js';
 import { getSystemSettings } from '../services/systemSettingsService.js';
 
@@ -5,25 +6,16 @@ const APP_NAME = '星漫旅站';
 const APP_SHORT_NAME = '星漫旅站';
 const BACKGROUND_COLOR = '#0f172a';
 
-function textResponse(body, contentType, headers = {}) {
-  return new Response(body, {
-    headers: {
-      'Content-Type': contentType,
-      'Cache-Control': 'public, max-age=3600',
-      ...headers,
-    },
+// PWA 静态响应适配：Content-Type + 1h 静态缓存策略，底层走 utils.textResponse 工厂
+// （2026-08-16 架构评审候选 3：删除手写 new Response 与私有 hash，收编 lib/utils）。
+function pwaResponse(body, contentType, headers = {}) {
+  return textResponse(body, 200, {
+    'Content-Type': contentType,
+    'Cache-Control': 'public, max-age=3600',
+    ...headers,
   });
 }
 
-function getSimpleHash(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash |= 0;
-  }
-  return Math.abs(hash).toString(36);
-}
 
 function buildIconSvg(size = 512, accent = 'blue') {
   const safeSize = Number(size) || 512;
@@ -116,7 +108,7 @@ export async function handlePwaRequest(request, env) {
       }
     );
 
-    return textResponse(JSON.stringify({
+    return pwaResponse(JSON.stringify({
       name: appName,
       short_name: appShortName,
       description: appDesc,
@@ -146,11 +138,11 @@ export async function handlePwaRequest(request, env) {
       shellUrls.push(siteIcon);
     }
     const shellUrlsStr = JSON.stringify(shellUrls);
-    const configVersion = getSimpleHash(`${appName}-${siteIcon}-${themeColor}`);
+    const configVersion = hashString(`${appName}-${siteIcon}-${themeColor}`);
     const cacheName = `starnav-pwa-${configVersion}`;
     const runtimeCacheName = `starnav-runtime-${configVersion}`;
 
-    return textResponse(`const CACHE_NAME='${cacheName}';
+    return pwaResponse(`const CACHE_NAME='${cacheName}';
 const RUNTIME_CACHE='${runtimeCacheName}';
 const SHELL_URLS=${shellUrlsStr};
 const FONT_HOSTS=['fonts.googleapis.com','fonts.gstatic.com'];
@@ -215,11 +207,11 @@ self.addEventListener('fetch',event=>{
   }
 
   if (path === '/pwa-icon.svg' || path === '/pwa-icon-512.svg') {
-    return textResponse(buildIconSvg(512, accent), 'image/svg+xml; charset=utf-8');
+    return pwaResponse(buildIconSvg(512, accent), 'image/svg+xml; charset=utf-8');
   }
 
   if (path === '/pwa-icon-192.svg') {
-    return textResponse(buildIconSvg(192, accent), 'image/svg+xml; charset=utf-8');
+    return pwaResponse(buildIconSvg(192, accent), 'image/svg+xml; charset=utf-8');
   }
 
   return null;

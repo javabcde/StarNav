@@ -2,7 +2,7 @@
 // 与 systemSettingsService（system.* 键域）同构：settingsService 是 settings 表适配器，
 // 本模块是 AI 设置领域模块——aiService 编排、systemHealthService 聚合、settings 端点
 // 统一从本模块读取，禁止再内嵌逐 key 读写（2026-08-16 架构评审候选 2）。
-import { cleanText } from '../lib/utils.js';
+import { cleanText, strictBoolString } from '../lib/utils.js';
 import { decryptSecret, encryptSecret } from '../lib/crypto.js';
 import { listSettings, setSettings } from './settingsService.js';
 
@@ -17,12 +17,6 @@ export const DEFAULT_AI_SETTINGS = {
   systemPrompt: '你是星漫旅站的 AI 书签助理。你的首要任务是基于“本站书签检索结果”回答用户。检索结果是事实来源，不能编造不存在的书签、分类、标签或链接；不能说出与检索结果相反的结论。若检索结果为空，请明确说明本站没有找到相关书签，并建议用户换关键词。若用户询问“所有、全部、包含某字、某分类、某标签、某链接”等事实型问题，必须逐条依据检索结果回答。回答要简洁、准确、友好；只有在明确说明“以下是通用建议，不代表本站已有书签”时，才可以补充常识建议。请使用中文纯文本或简单编号列表回答，避免使用 Markdown 加粗星号。',
 };
 
-// bool 字符串归一：仅 true / 'true' 视为 'true'，其余一律 'false'。
-// 与 normalizeAiSettingsPayload 的布尔判定同源；后者用于把载荷并入已存设置
-// （updateAiSettings / testAiSettings / listAiModels），本函数用于读取与强制写回时的归一。
-function boolString(value) {
-  return String(value) === 'true' ? 'true' : 'false';
-}
 
 /**
  * 载荷归一化：文本字段 cleanText 后回退已存值再回退默认；bool 字段
@@ -62,7 +56,7 @@ export async function getAiSettings(env, { includeSecret = false } = {}) {
     settings[key] = value === undefined || value === null ? defaultValue : value;
   }
 
-  settings.enabled = boolString(settings.enabled);
+  settings.enabled = strictBoolString(settings.enabled);
   settings.configured = Boolean(settings.apiKey);
   if (includeSecret) {
     settings.apiKey = await decryptSecret(env, settings.apiKey);
@@ -83,8 +77,8 @@ export async function updateAiSettings(env, payload = {}) {
   const settings = normalizeAiSettingsPayload(saved, payload);
 
   const entries = [
-    [`${AI_SETTING_PREFIX}enabled`, boolString(payload.enabled)],
-    [`${AI_SETTING_PREFIX}enableThinking`, boolString(payload.enableThinking)],
+    [`${AI_SETTING_PREFIX}enabled`, strictBoolString(payload.enabled)],
+    [`${AI_SETTING_PREFIX}enableThinking`, strictBoolString(payload.enableThinking)],
     [`${AI_SETTING_PREFIX}baseUrl`, settings.baseUrl],
     [`${AI_SETTING_PREFIX}model`, settings.model],
     [`${AI_SETTING_PREFIX}systemPrompt`, settings.systemPrompt],

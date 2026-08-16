@@ -5,24 +5,12 @@
 // 带登录态或私人解锁或整站锁解锁 cookie 的请求一律不缓存，杜绝把个性化视图泄露给他人。
 //
 // 鉴权 cookie 名单收归 src/services/accessService.js（isCacheableHomeRequest）——
-// 新增鉴权 cookie 只改那里，本模块零感知（决策见 docs/adr/0003）。
+import { LANGUAGE_COOKIE, parseCookies } from './cookie.js';
 import { isCacheableHomeRequest } from '../services/accessService.js';
 
-// 影响渲染输出但非鉴权的维度仍由本模块纳入缓存键。
-const LANGUAGE_COOKIE = 'nav_lang';
-
-
+// 影响渲染输出但非鉴权的维度（语言 / 分类 / 排序 / 标签）仍由本模块纳入缓存键。
 // 边缘缓存 60s，浏览器不缓存（max-age=0）以便始终回源命中最新的边缘副本。
 const HOME_CACHE_CONTROL = 'public, max-age=0, s-maxage=60';
-
-function parseCookieHeader(cookieHeader = '') {
-  return Object.fromEntries(
-    cookieHeader.split(';').map((part) => {
-      const [key, ...value] = part.trim().split('=');
-      return [key, value.join('=')];
-    }).filter(([key]) => key),
-  );
-}
 
 /**
  * 判定首页请求是否可走共享边缘缓存，并返回稳定的缓存键 Request；不可缓存时返回 null。
@@ -37,7 +25,7 @@ export function buildHomeCacheKey(request) {
   } catch {
     return null;
   }
-  const cookies = parseCookieHeader(request.headers.get('Cookie') || '');
+  const cookies = parseCookies(request.headers.get('Cookie') || '');
   if (request.method !== 'GET') return null;
   if (url.pathname !== '/') return null;
   // 任一鉴权相关 cookie 存在 → 个性化请求，不缓存（策略归 accessService，硬约束见该模块）。
