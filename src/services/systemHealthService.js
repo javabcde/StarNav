@@ -3,6 +3,7 @@ import { listBackups } from './backupService.js';
 import { getAiSettings } from './aiService.js';
 import { getSystemSettings } from './systemSettingsService.js';
 import { listWebhooks } from './webhookService.js';
+import { deadSiteSql } from './healthQuery.js';
 
 function createCheck(id, name, ok, message, details = {}, level = 'info') {
   return {
@@ -77,7 +78,9 @@ export async function getSystemHealth(env) {
         countTable(env, 'categories'),
         countTable(env, 'tags'),
         countTable(env, 'pending_sites', "status = 'pending'"),
-        countTable(env, 'sites', "last_checked_at IS NOT NULL AND (last_error IS NOT NULL OR last_status_code < 200 OR last_status_code >= 400)"),
+        // dead 谓词统一自 healthQuery（带 last_status_code IS NOT NULL 守卫版）；与旧无守卫写法在
+        // SQL 三值逻辑下等价（状态码为 NULL 时两种写法同样不匹配），无可观察差异。
+        countTable(env, 'sites', `last_checked_at IS NOT NULL AND ${deadSiteSql()}`),
         countTable(env, 'sites', 'last_checked_at IS NULL'),
         countTable(env, 'operation_logs'),
       ]);

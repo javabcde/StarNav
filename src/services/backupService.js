@@ -1,6 +1,6 @@
 import { cleanText } from '../lib/utils.js';
 import { getSetting, setSetting } from './settingsService.js';
-import { exportConfig, importSites } from './siteService.js';
+import { exportConfig, importSites } from './transferService.js';
 import { decryptSecret, encryptSecret } from '../lib/crypto.js';
 import { logOperation, OPERATION_LOG_ACTIONS } from './operationLogService.js';
 
