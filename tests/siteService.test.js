@@ -4,14 +4,13 @@ import assert from 'node:assert/strict';
 import {
   canAccessSite,
   canListSite,
-  ensureSiteFavicon,
-  faviconFailedKey,
   listSitesByIds,
   normalizeDuplicateUrlKey,
   normalizeImportPayload,
   previewImportSites,
   searchSites,
 } from '../src/services/siteService.js';
+import { ensureSiteFavicon, faviconFailedKey } from '../src/services/iconService.js';
 
 function createMockEnv({ sites = [], tagRows = [], existingCategories = [], existingUrls = [] } = {}) {
   return {

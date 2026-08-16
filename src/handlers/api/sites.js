@@ -1,18 +1,3 @@
-export function getSiteRouteFlags(path = '') {
-  return {
-    isSitesCollectionPath: path === '/config' || path === '/sites',
-    isSiteSubmitPath: path === '/config/submit' || path === '/submissions',
-    isSiteReorderPath: path === '/config/reorder' || path === '/sites/reorder',
-    isSiteImportPath: path === '/config/import' || path === '/sites/import',
-    isSiteImportPreviewPath: path === '/config/import/preview' || path === '/sites/import/preview',
-    isSiteBulkPath: path === '/config/bulk' || path === '/sites/bulk',
-    isSiteExportPath: path === '/config/export' || path === '/sites/export',
-    isSiteCheckPath: /^\/(?:config|sites)\/\d+\/check$/.test(path),
-    isSiteItemPath: /^\/(?:config|sites)\/\d+$/.test(path),
-    isSubmissionsCollectionPath: path === '/pending' || path === '/submissions',
-    isSubmissionItemPath: /^\/(?:pending|submissions)\/\d+$/.test(path),
-  };
-}
 
 function csvCell(value) {
   const text = Array.isArray(value) ? value.join(' ') : String(value ?? '');

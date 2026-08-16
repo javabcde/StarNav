@@ -1,13 +1,25 @@
-import { extractHtmlFavicon, getFavicon } from '../lib/favicon.js';
+import { extractHtmlFavicon } from '../lib/favicon.js';
 import { readTextWithLimit, safeFetch } from '../lib/ssrf.js';
 import { cleanText, normalizeSortOrder, nullableText } from '../lib/utils.js';
 import { upsertCategoryByName } from './categoryService.js';
 import { PRIVATE_BOOKMARK_CATEGORY } from './privateBookmarkService.js';
 import { resolveSpaceId } from './spaceService.js';
 import { attachTagsToSites, normalizeTags, setSiteTags } from './tagService.js';
-import { canAccessSite, canListSite, isPrivateSite, normalizeVisibility, SITE_VISIBILITIES } from './accessService.js';
+import { faviconFailedKey } from './iconService.js';
+import { logOperation, OPERATION_LOG_ACTIONS } from './operationLogService.js';
+import { canAccessSite, canListSite, isPrivateSite, normalizeVisibility, SITE_VISIBILITIES, visibilityWhere } from './accessService.js';
 // 可见性规则已迁入 accessService（docs/adr/0003）；re-export 保持存量测试 import 面。
-export { canAccessSite, canListSite, isPrivateSite, normalizeVisibility, SITE_VISIBILITIES } from './accessService.js';
+export { canAccessSite, canListSite, isPrivateSite, normalizeVisibility, SITE_VISIBILITIES, visibilityWhere } from './accessService.js';
+
+// 可见性过滤唯一入口：把 visibilityWhere 渲染的谓词 push 进查询的 where/binds。
+// 各查询只传自己的访问上下文（resolvedAccess / access），谓词与绑定顺序由 accessService 单一持有。
+function applyVisibilityWhere(where, binds, access) {
+  const { sql, binds: visibilityBinds } = visibilityWhere(access);
+  if (sql) {
+    where.push(sql);
+    binds.push(...visibilityBinds);
+  }
+}
 
 /**
  * @typedef {'public' | 'private' | 'unlisted' | 'admin_only'} SiteVisibility
@@ -448,12 +460,7 @@ export async function getSites(env, { page = 1, pageSize = 10, catalog = '', key
     where.push("s.last_checked_at IS NULL");
   }
   if (!resolvedAccess.adminAuthed) {
-    if (resolvedAccess.privateUnlocked) {
-      where.push("COALESCE(s.visibility, 'public') IN ('public', 'private')");
-    } else {
-      where.push("COALESCE(s.visibility, 'public') = 'public' AND COALESCE(c.name, s.catelog) <> ?");
-      binds.push(PRIVATE_BOOKMARK_CATEGORY);
-    }
+    applyVisibilityWhere(where, binds, resolvedAccess);
   }
 
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -580,12 +587,7 @@ export async function getAllSites(env, { space = '', space_id = null, access = n
   // 可见性过滤（docs/adr/0003）：access 存在时应用与 getSites 相同的 SQL 片段；
   // 缺省保持历史形态不过滤（仅测试路径——home/exportConfig 两个生产调用面均显式传 access）
   if (access && !access.adminAuthed) {
-    if (access.privateUnlocked) {
-      where.push("COALESCE(s.visibility, 'public') IN ('public', 'private')");
-    } else {
-      where.push("COALESCE(s.visibility, 'public') = 'public' AND COALESCE(c.name, s.catelog) <> ?");
-      binds.push(PRIVATE_BOOKMARK_CATEGORY);
-    }
+    applyVisibilityWhere(where, binds, access);
   }
 
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -704,12 +706,7 @@ export async function getSiteAnalytics(env, { limit = 20, access = null } = {}) 
   const accessWhere = [];
   const accessBinds = [];
   if (!access || !access.adminAuthed) {
-    if (access && access.privateUnlocked) {
-      accessWhere.push("COALESCE(s.visibility, 'public') IN ('public', 'private')");
-    } else {
-      accessWhere.push("COALESCE(s.visibility, 'public') = 'public' AND COALESCE(c.name, s.catelog) <> ?");
-      accessBinds.push(PRIVATE_BOOKMARK_CATEGORY);
-    }
+    applyVisibilityWhere(accessWhere, accessBinds, access);
   }
   const accessWhereSql = accessWhere.length ? ` AND ${accessWhere.join(' AND ')}` : '';
 
@@ -848,12 +845,7 @@ export async function listSitesByIds(env, ids = [], { includePrivate = false, ad
   const where = [`s.id IN (${cleanIds.map(() => '?').join(', ')})`];
   const binds = [...cleanIds];
   if (!resolvedAccess.adminAuthed) {
-    if (resolvedAccess.privateUnlocked) {
-      where.push("COALESCE(s.visibility, 'public') IN ('public', 'private')");
-    } else {
-      where.push("COALESCE(s.visibility, 'public') = 'public' AND COALESCE(c.name, s.catelog) <> ?");
-      binds.push(PRIVATE_BOOKMARK_CATEGORY);
-    }
+    applyVisibilityWhere(where, binds, resolvedAccess);
   }
 
   try {
@@ -921,12 +913,7 @@ export async function searchSites(env, { keyword = '', limit = 50, includePrivat
   }
 
   if (!resolvedAccess.adminAuthed) {
-    if (resolvedAccess.privateUnlocked) {
-      where.push("COALESCE(s.visibility, 'public') IN ('public', 'private')");
-    } else {
-      where.push("COALESCE(s.visibility, 'public') = 'public' AND COALESCE(c.name, s.catelog) <> ?");
-      binds.push(PRIVATE_BOOKMARK_CATEGORY);
-    }
+    applyVisibilityWhere(where, binds, resolvedAccess);
   }
 
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -1016,12 +1003,7 @@ export async function searchSites(env, { keyword = '', limit = 50, includePrivat
     }
 
     if (!resolvedAccess.adminAuthed) {
-      if (resolvedAccess.privateUnlocked) {
-        fallbackWhere.push("COALESCE(s.visibility, 'public') IN ('public', 'private')");
-      } else {
-        fallbackWhere.push("COALESCE(s.visibility, 'public') = 'public' AND COALESCE(c.name, s.catelog) <> ?");
-        fallbackBinds.push(PRIVATE_BOOKMARK_CATEGORY);
-      }
+      applyVisibilityWhere(fallbackWhere, fallbackBinds, resolvedAccess);
     }
 
     const fallbackWhereSql = fallbackWhere.length ? `WHERE ${fallbackWhere.join(' AND ')}` : '';
@@ -1133,7 +1115,7 @@ export async function checkSiteHealth(env, id) {
   };
 }
 
-export async function bulkCheckSiteHealth(env, ids) {
+export async function bulkCheckSiteHealth(env, ids, { ip } = {}) {
   const siteIds = normalizeIdList(ids).slice(0, 30);
   if (!siteIds.length) throw new Error('ids must be a non-empty array');
 
@@ -1142,12 +1124,14 @@ export async function bulkCheckSiteHealth(env, ids) {
     results.push(await checkSiteHealth(env, siteId));
   }
 
-  return {
+  const result = {
     checked: results.length,
     ok: results.filter((item) => item.ok).length,
     failed: results.filter((item) => !item.ok).length,
     results,
   };
+  await logOperation(env, { action: OPERATION_LOG_ACTIONS.SITE_BULK_CHECK, target: 'site', summary: `批量检测 ${results.length} 个书签，正常 ${result.ok}，异常 ${result.failed}`, ip });
+  return result;
 }
 
 export async function runScheduledHealthCheck(env, { limit = 30 } = {}) {
@@ -1168,102 +1152,6 @@ export async function runScheduledHealthCheck(env, { limit = 30 } = {}) {
   return bulkCheckSiteHealth(env, ids);
 }
 
-export function faviconFailedKey(id) {
-  return `favicon:failed:${id}`;
-}
-
-/**
- * 幂等补全站点图标（图标自动补全）：仅在无图标且未被标记失败时抓取写回。
- * - logo 非空 → { updated:false, reason:'has-logo' }
- * - KV favicon:failed:{id} 存在 → { updated:false, reason:'already-failed' }（永久放弃，仅手动刷新/编辑重置）
- * - getFavicon 返回空（5 源全失败）→ KV 永久标记 → { updated:false, reason:'no-favicon' }
- * - 抓取/写入异常 → 不标记，下次点击再试 → { updated:false, reason:'error' }
- *
- * 注意：getFavicon 内部已吞掉各源 fetch 异常并返回 ''，此处 catch 兜底的是
- * KV/D1 写入异常。waitUntil 预算截断时整个 promise 被丢弃，不会误写标记。
- *
- * @param {object} env Cloudflare Workers 环境绑定，需包含 `NAV_DB` 与 `NAV_AUTH`。
- * @param {object} site 站点对象（含 id/url/logo）。
- * @returns {Promise<{updated: boolean, favicon?: string, reason: string}>}
- */
-export async function ensureSiteFavicon(env, site) {
-  if (!site) return { updated: false, reason: 'no-site' };
-  // 已有时返回现有 URL：插件缓存可能落后于 D1（主站刚补过），
-  // 拿到 URL 即可本地 patch，无需再抓取
-  if (site.logo) return { updated: false, favicon: site.logo, reason: 'has-logo' };
-
-  const failedKey = faviconFailedKey(site.id);
-  const failed = await env.NAV_AUTH.get(failedKey);
-  if (failed) return { updated: false, reason: 'already-failed' };
-
-  try {
-    const favicon = await getFavicon(site.url);
-    if (!favicon) {
-      // 5 个独立源全失败 ≈ 该站没有可用图标（静态属性），永久放弃自动重试
-      await env.NAV_AUTH.put(failedKey, '1');
-      return { updated: false, reason: 'no-favicon' };
-    }
-    await env.NAV_DB.prepare(`
-      UPDATE sites
-      SET logo = ?, update_time = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).bind(favicon, site.id).run();
-    return { updated: true, favicon, reason: 'filled' };
-  } catch (error) {
-    console.log(`[favicon] ensure failed for site ${site?.id}: ${error?.message || error}`);
-    return { updated: false, reason: 'error' };
-  }
-}
-
-export async function bulkRefreshSiteFavicons(env, ids) {
-  const siteIds = normalizeIdList(ids).slice(0, 30);
-  if (!siteIds.length) throw new Error('ids must be a non-empty array');
-
-  const placeholders = siteIds.map(() => '?').join(',');
-  const { results: sites } = await env.NAV_DB.prepare(`
-    SELECT id, name, url, logo
-    FROM sites
-    WHERE id IN (${placeholders})
-  `).bind(...siteIds).all();
-
-  const siteMap = new Map((sites || []).map((site) => [Number(site.id), site]));
-  const results = [];
-
-  for (const siteId of siteIds) {
-    // 手动刷新 = 显式重试：无论成败都清除自动补全的失败标记（重置后点击可再触发）
-    await env.NAV_AUTH.delete(faviconFailedKey(siteId)).catch(() => {});
-    const site = siteMap.get(siteId);
-    if (!site) {
-      results.push({ id: siteId, ok: false, favicon: '', error: 'Site not found' });
-      continue;
-    }
-
-    try {
-      const favicon = await getFavicon(site.url);
-      if (!favicon) {
-        results.push({ id: siteId, name: site.name, ok: false, favicon: '', error: 'No favicon found' });
-        continue;
-      }
-
-      await env.NAV_DB.prepare(`
-        UPDATE sites
-        SET logo = ?, update_time = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).bind(favicon, siteId).run();
-
-      results.push({ id: siteId, name: site.name, ok: true, favicon, previous: site.logo || '' });
-    } catch (error) {
-      results.push({ id: siteId, name: site?.name || '', ok: false, favicon: '', error: error?.message || 'Refresh failed' });
-    }
-  }
-
-  return {
-    refreshed: results.filter((item) => item.ok).length,
-    failed: results.filter((item) => !item.ok).length,
-    total: results.length,
-    results,
-  };
-}
 
 export async function incrementSiteHits(env, id) {
   return env.NAV_DB.prepare(`
@@ -1295,7 +1183,7 @@ function buildDuplicateError(duplicate, scope = 'site') {
  * @returns {Promise<object>} D1 写入结果。
  * @throws {Error} 当必填字段缺失或 URL 重复时抛出错误。
  */
-export async function createSite(env, config, { force = false } = {}) {
+export async function createSite(env, config, { force = false, ip } = {}) {
   const site = normalizeSitePayload(config);
   const spaceId = null;
   if (!force) {
@@ -1314,7 +1202,13 @@ export async function createSite(env, config, { force = false } = {}) {
 
   const siteId = result?.meta?.last_row_id;
   if (siteId) await setSiteTags(env, siteId, site.tags);
-
+  await logOperation(env, {
+    action: OPERATION_LOG_ACTIONS.SITE_CREATE,
+    target: 'site',
+    targetId: siteId,
+    summary: site.name,
+    ip,
+  });
   return result;
 }
 
@@ -1331,7 +1225,7 @@ export async function createSite(env, config, { force = false } = {}) {
  * @returns {Promise<object>} D1 更新结果。
  * @throws {Error} 当站点不存在、必填字段缺失或 URL 重复时抛出错误。
  */
-export async function updateSite(env, id, config, { force = false } = {}) {
+export async function updateSite(env, id, config, { force = false, ip } = {}) {
   const existing = await getSite(env, id);
   if (!existing) throw new Error('Site not found');
   const site = normalizeSitePayload({
@@ -1357,6 +1251,13 @@ export async function updateSite(env, id, config, { force = false } = {}) {
   // 编辑书签 = 手动操作：清除自动补全的失败标记（重置后点击可再触发）。
   // 可选链容错无 NAV_AUTH 的测试 env。
   await env.NAV_AUTH?.delete?.(faviconFailedKey(id)).catch(() => {});
+  await logOperation(env, {
+    action: OPERATION_LOG_ACTIONS.SITE_UPDATE,
+    target: 'site',
+    targetId: id,
+    summary: site.name,
+    ip,
+  });
 
   return result;
 }
@@ -1368,9 +1269,11 @@ export async function updateSite(env, id, config, { force = false } = {}) {
  * @param {number|string} id 站点 ID。
  * @returns {Promise<object>} D1 删除结果。
  */
-export async function deleteSite(env, id) {
+export async function deleteSite(env, id, { ip } = {}) {
   await env.NAV_DB.prepare('DELETE FROM site_tags WHERE site_id = ?').bind(id).run();
-  return env.NAV_DB.prepare('DELETE FROM sites WHERE id = ?').bind(id).run();
+  const result = await env.NAV_DB.prepare('DELETE FROM sites WHERE id = ?').bind(id).run();
+  await logOperation(env, { action: OPERATION_LOG_ACTIONS.SITE_DELETE, target: 'site', targetId: id, ip });
+  return result;
 }
 
 function normalizeIdList(ids) {
@@ -1378,16 +1281,18 @@ function normalizeIdList(ids) {
   return [...new Set(list.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
 }
 
-export async function bulkDeleteSites(env, ids) {
+export async function bulkDeleteSites(env, ids, { ip } = {}) {
   const siteIds = normalizeIdList(ids);
   if (!siteIds.length) throw new Error('ids must be a non-empty array');
 
   const placeholders = siteIds.map(() => '?').join(',');
   await env.NAV_DB.prepare(`DELETE FROM site_tags WHERE site_id IN (${placeholders})`).bind(...siteIds).run();
-  return env.NAV_DB.prepare(`DELETE FROM sites WHERE id IN (${placeholders})`).bind(...siteIds).run();
+  const result = await env.NAV_DB.prepare(`DELETE FROM sites WHERE id IN (${placeholders})`).bind(...siteIds).run();
+  await logOperation(env, { action: OPERATION_LOG_ACTIONS.SITE_BULK_DELETE, target: 'site', summary: `批量删除 ${siteIds.length} 个书签`, detail: { ids: siteIds }, ip });
+  return result;
 }
 
-export async function bulkUpdateSites(env, { ids = [], catelog, tags, mode = 'replace', visibility } = {}) {
+export async function bulkUpdateSites(env, { ids = [], catelog, tags, mode = 'replace', visibility } = {}, { ip } = {}) {
   const siteIds = normalizeIdList(ids);
   if (!siteIds.length) throw new Error('ids must be a non-empty array');
 
@@ -1432,6 +1337,17 @@ export async function bulkUpdateSites(env, { ids = [], catelog, tags, mode = 're
   }
 
   if (!updates.length && !hasTags) throw new Error('No bulk update fields provided');
+  const fields = [];
+  if (category) fields.push(`分类=${category}`);
+  if (normalizedVisibility) fields.push(`可见性=${normalizedVisibility}`);
+  if (hasTags) fields.push(`标签(${mode})`);
+  await logOperation(env, {
+    action: OPERATION_LOG_ACTIONS.SITE_BULK_UPDATE,
+    target: 'site',
+    summary: `批量修改 ${siteIds.length} 个书签 ${fields.join(' ')}`.trim(),
+    detail: { ids: siteIds, fields },
+    ip,
+  });
 
   return { updated: siteIds.length };
 }
@@ -1746,7 +1662,7 @@ export async function getSubmissionAnalytics(env, { days = 30 } = {}) {
   };
 }
 
-export async function approvePendingSite(env, id, { force = false } = {}) {
+export async function approvePendingSite(env, id, { force = false, ip } = {}) {
   const config = await env.NAV_DB.prepare('SELECT * FROM pending_sites WHERE id = ?').bind(id).first();
   if (!config) throw new Error('Pending config not found');
   if (config.status === 'approved') throw new Error('This submission has already been approved');
@@ -1772,9 +1688,10 @@ export async function approvePendingSite(env, id, { force = false } = {}) {
   await env.NAV_DB.prepare(`
     UPDATE pending_sites SET status = 'approved', reviewed_at = CURRENT_TIMESTAMP WHERE id = ?
   `).bind(id).run();
+  await logOperation(env, { action: OPERATION_LOG_ACTIONS.PENDING_APPROVE, target: 'pending_site', targetId: id, ip });
 }
 
-export async function rejectPendingSite(env, id, { reason = '' } = {}) {
+export async function rejectPendingSite(env, id, { reason = '', ip } = {}) {
   const config = await env.NAV_DB.prepare('SELECT * FROM pending_sites WHERE id = ?').bind(id).first();
   if (!config) throw new Error('Pending config not found');
 
@@ -1782,6 +1699,7 @@ export async function rejectPendingSite(env, id, { reason = '' } = {}) {
   await env.NAV_DB.prepare(`
     UPDATE pending_sites SET status = 'rejected', reject_reason = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?
   `).bind(rejectReason, id).run();
+  await logOperation(env, { action: OPERATION_LOG_ACTIONS.PENDING_REJECT, target: 'pending_site', targetId: id, summary: rejectReason || undefined, ip });
 }
 
 export function normalizeImportPayload(jsonData) {
@@ -1953,7 +1871,7 @@ async function listCategoryIdMap(env) {
   return new Map((results || []).map((row) => [row.name, row]));
 }
 
-export async function importSites(env, jsonData, { mode = 'merge' } = {}) {
+export async function importSites(env, jsonData, { mode = 'merge', ip } = {}) {
   const { sites, categories } = normalizeImportPayload(jsonData);
   const overwrite = cleanText(mode).toLowerCase() === 'overwrite';
   if (overwrite) await clearBookmarkData(env);
@@ -1987,6 +1905,7 @@ export async function importSites(env, jsonData, { mode = 'merge' } = {}) {
     }
   }
 
+  await logOperation(env, { action: OPERATION_LOG_ACTIONS.SITE_IMPORT, target: 'site', summary: `${mode} 导入 ${importedSites} 个书签`, ip });
   return importedSites;
 }
 
@@ -2080,7 +1999,7 @@ function resolveUrl(base, relative) {
   }
 }
 
-export async function reorderSites(env, items) {
+export async function reorderSites(env, items, { ip } = {}) {
   if (!Array.isArray(items) || items.length === 0) {
     throw new Error('items must be a non-empty array');
   }
@@ -2095,4 +2014,5 @@ export async function reorderSites(env, items) {
   });
 
   await env.NAV_DB.batch(statements);
+  await logOperation(env, { action: OPERATION_LOG_ACTIONS.SITE_REORDER, target: 'site', summary: `重排 ${items.length} 个书签`, ip });
 }

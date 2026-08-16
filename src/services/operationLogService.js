@@ -29,7 +29,7 @@ export const OPERATION_LOG_ACTIONS = {
   BACKUP_DELETE: 'backup.delete',
 };
 
-function clientIpFromRequest(request) {
+export function clientIpFromRequest(request) {
   if (!request) return '';
   try {
     const headers = request.headers;
@@ -53,7 +53,7 @@ function summarizeDetail(detail) {
   }
 }
 
-export async function logOperation(env, { action, target, targetId, summary, detail, request } = {}) {
+export async function logOperation(env, { action, target, targetId, summary, detail, request, ip } = {}) {
   const actionText = cleanText(action).slice(0, 80);
   if (!actionText) return null;
   const operation = {
@@ -62,7 +62,7 @@ export async function logOperation(env, { action, target, targetId, summary, det
     targetId: targetId !== undefined && targetId !== null ? String(targetId).slice(0, 80) : null,
     summary: cleanText(summary).slice(0, 200) || null,
     detail: summarizeDetail(detail),
-    ip: clientIpFromRequest(request) || null,
+    ip: ip || clientIpFromRequest(request) || null,
   };
 
   try {

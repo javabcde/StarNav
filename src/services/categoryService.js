@@ -1,5 +1,6 @@
 import { buildTree, cleanText, normalizeSortOrder } from '../lib/utils.js';
 import { PRIVATE_BOOKMARK_CATEGORY } from './privateBookmarkService.js';
+import { logOperation, OPERATION_LOG_ACTIONS } from './operationLogService.js';
 
 function cleanCategoryColor(value) {
   const text = cleanText(value);
@@ -186,7 +187,7 @@ function removePrivateCategoryNode(nodes) {
   return null;
 }
 
-export async function createCategory(env, body) {
+export async function createCategory(env, body, { ip } = {}) {
   const name = cleanText(body?.name);
   if (!name) throw new Error('Category name is required');
 
@@ -207,11 +208,12 @@ export async function createCategory(env, body) {
     VALUES (?, ?)
     ON CONFLICT(catelog) DO UPDATE SET sort_order = excluded.sort_order
   `).bind(name, sortOrder).run();
+  await logOperation(env, { action: OPERATION_LOG_ACTIONS.CATEGORY_CREATE, target: 'category', summary: name, ip });
 
   return result;
 }
 
-export async function updateCategory(env, idOrName, body) {
+export async function updateCategory(env, idOrName, body, { ip } = {}) {
   const category = await findCategory(env, idOrName);
   if (!category) throw new Error('Category not found');
 
@@ -248,11 +250,11 @@ export async function updateCategory(env, idOrName, body) {
       ON CONFLICT(catelog) DO UPDATE SET sort_order = excluded.sort_order
     `).bind(newName, sortOrder),
   ]);
-
+  await logOperation(env, { action: OPERATION_LOG_ACTIONS.CATEGORY_UPDATE, target: 'category', targetId: category.id, summary: newName, ip });
   return { oldName: category.name, newName, sort_order: sortOrder, parent_id: parentId || null };
 }
 
-export async function deleteCategory(env, idOrName) {
+export async function deleteCategory(env, idOrName, { ip } = {}) {
   const category = await findCategory(env, idOrName);
   if (!category) throw new Error('Category not found');
 
@@ -267,6 +269,7 @@ export async function deleteCategory(env, idOrName) {
     env.NAV_DB.prepare('DELETE FROM category_orders WHERE catelog = ?').bind(category.name),
     env.NAV_DB.prepare('DELETE FROM category_metadata WHERE catelog = ?').bind(category.name),
   ]);
+  await logOperation(env, { action: OPERATION_LOG_ACTIONS.CATEGORY_DELETE, target: 'category', targetId: category.id, ip });
 }
 
 export async function upsertCategoryByName(env, name, sortOrder = 9999) {
@@ -289,7 +292,7 @@ export async function upsertCategoryByName(env, name, sortOrder = 9999) {
   return findCategory(env, normalizedName);
 }
 
-export async function reorderCategories(env, items) {
+export async function reorderCategories(env, items, { ip } = {}) {
   if (!Array.isArray(items) || items.length === 0) {
     throw new Error('items must be a non-empty array');
   }
@@ -322,6 +325,7 @@ export async function reorderCategories(env, items) {
   }
 
   if (statements.length) await env.NAV_DB.batch(statements);
+  await logOperation(env, { action: OPERATION_LOG_ACTIONS.CATEGORY_REORDER, target: 'category', summary: `重排 ${items.length} 个分类`, ip });
   return { updated: items.length };
 }
 

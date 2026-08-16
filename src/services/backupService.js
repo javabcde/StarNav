@@ -2,6 +2,7 @@ import { cleanText } from '../lib/utils.js';
 import { getSetting, setSetting } from './settingsService.js';
 import { exportConfig, importSites } from './siteService.js';
 import { decryptSecret, encryptSecret } from '../lib/crypto.js';
+import { logOperation, OPERATION_LOG_ACTIONS } from './operationLogService.js';
 
 const BACKUP_PREFIX = 'backup:';
 const META_PREFIX = 'backup-meta:';
@@ -183,7 +184,7 @@ async function pruneBackups(env, keep = MAX_BACKUPS) {
   return { deleted: toDelete.length };
 }
 
-export async function createBackup(env, { reason = 'manual', note = '' } = {}) {
+export async function createBackup(env, { reason = 'manual', note = '', ip } = {}) {
   if (!env?.NAV_AUTH) throw new Error('Backup storage (NAV_AUTH KV) is not available');
   const config = await exportConfig(env);
   const payload = JSON.stringify(config);
@@ -213,6 +214,7 @@ export async function createBackup(env, { reason = 'manual', note = '' } = {}) {
 
   await env.NAV_AUTH.put(`${META_PREFIX}${id}`, JSON.stringify(meta));
   const pruneResult = await pruneBackups(env, MAX_BACKUPS);
+  await logOperation(env, { action: OPERATION_LOG_ACTIONS.BACKUP_CREATE, target: 'backup', targetId: meta.id, summary: `备份 ${meta.siteCount} 个书签 / ${meta.categoryCount} 个分类`, ip });
   return { ...meta, prunedOld: pruneResult.deleted };
 }
 
@@ -227,16 +229,17 @@ export async function getBackupPayload(env, id) {
   }
 }
 
-export async function deleteBackup(env, id) {
+export async function deleteBackup(env, id, { ip } = {}) {
   if (!env?.NAV_AUTH) return { deleted: false };
   await Promise.all([
     env.NAV_AUTH.delete(`${BACKUP_PREFIX}${id}`),
     env.NAV_AUTH.delete(`${META_PREFIX}${id}`),
   ]);
+  await logOperation(env, { action: OPERATION_LOG_ACTIONS.BACKUP_DELETE, target: 'backup', targetId: id, ip });
   return { deleted: true, id };
 }
 
-export async function restoreBackup(env, id, { mode = 'overwrite' } = {}) {
+export async function restoreBackup(env, id, { mode = 'overwrite', ip } = {}) {
   const payload = await getBackupPayload(env, id);
   if (!payload) throw new Error('Backup not found');
   // 恢复前自动创建一份"恢复前快照"，防止误操作丢数据
@@ -248,12 +251,14 @@ export async function restoreBackup(env, id, { mode = 'overwrite' } = {}) {
   }
   const restoreMode = mode === 'merge' ? 'merge' : 'overwrite';
   const importedSites = await importSites(env, payload, { mode: restoreMode });
-  return {
+  const result = {
     backupId: id,
     mode: restoreMode,
     importedSites,
     preRestoreSnapshotId: preRestoreSnapshot?.id || null,
   };
+  await logOperation(env, { action: OPERATION_LOG_ACTIONS.BACKUP_RESTORE, target: 'backup', targetId: id, summary: `${restoreMode} 恢复 ${importedSites} 个书签`, ip });
+  return result;
 }
 
 export async function runScheduledBackup(env) {

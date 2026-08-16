@@ -185,3 +185,24 @@ export function canListSite(site, { adminAuthed = false, privateUnlocked = false
   if (visibility === 'unlisted' || visibility === 'admin_only') return false;
   return canAccessSite(site, { adminAuthed, privateUnlocked });
 }
+
+/**
+ * 渲染站点可见性过滤的 SQL 片段（访问规则与 SQL 渲染的单一来源）。
+ *
+ * 与 `canListSite` 等价规则的 SQL 形态：admin 不过滤；私人书签解锁可见
+ * public/private；否则仅 public 且排除私密分类。消费方（siteService 的
+ * 6 处列表/搜索查询）只 push 返回的 sql 与 binds，不再各自复制谓词。
+ *
+ * @param {{ adminAuthed?: boolean, privateUnlocked?: boolean }|null} [access] 访问上下文。
+ * @returns {{ sql: string, binds: string[] }} sql 为空串表示无需过滤。
+ */
+export function visibilityWhere(access = {}) {
+  if (access?.adminAuthed) return { sql: '', binds: [] };
+  if (access?.privateUnlocked) {
+    return { sql: "COALESCE(s.visibility, 'public') IN ('public', 'private')", binds: [] };
+  }
+  return {
+    sql: "COALESCE(s.visibility, 'public') = 'public' AND COALESCE(c.name, s.catelog) <> ?",
+    binds: [PRIVATE_BOOKMARK_CATEGORY],
+  };
+}

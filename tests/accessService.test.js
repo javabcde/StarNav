@@ -9,6 +9,7 @@ import {
   isCacheableHomeRequest,
   isSiteLockAllowlisted,
   normalizeVisibility,
+  visibilityWhere,
 } from '../src/services/accessService.js';
 
 function createMemoryKv(seed = {}) {
@@ -220,4 +221,31 @@ test('可见性规则：normalizeVisibility 与迁移前语义一致', () => {
   assert.equal(normalizeVisibility('invalid', '工具'), 'public'); // 其他非法值回退 public
   assert.equal(canAccessSite({ visibility: 'private', catelog: '私人' }, { privateUnlocked: true }), true);
   assert.equal(canListSite({ visibility: 'admin_only' }, { adminAuthed: true }), true);
+});
+
+test('visibilityWhere：admin 上下文返回空谓词（不过滤）', () => {
+  const { sql, binds } = visibilityWhere({ adminAuthed: true, privateUnlocked: false });
+  assert.equal(sql, '');
+  assert.deepEqual(binds, []);
+});
+
+test('visibilityWhere：私人书签解锁返回 public+private 谓词、零绑定', () => {
+  const { sql, binds } = visibilityWhere({ adminAuthed: false, privateUnlocked: true });
+  assert.equal(sql, "COALESCE(s.visibility, 'public') IN ('public', 'private')");
+  assert.deepEqual(binds, []);
+});
+
+test('visibilityWhere：匿名返回仅 public + 排除私密分类，绑定恰好一个', () => {
+  const { sql, binds } = visibilityWhere({ adminAuthed: false, privateUnlocked: false });
+  assert.equal(sql, "COALESCE(s.visibility, 'public') = 'public' AND COALESCE(c.name, s.catelog) <> ?");
+  assert.equal(binds.length, 1);
+  assert.equal(binds[0], '私人书签');
+});
+
+test('visibilityWhere：缺省与 null 上下文按匿名处理（接口级杜绝复漏）', () => {
+  const absent = visibilityWhere();
+  const nil = visibilityWhere(null);
+  assert.equal(absent.sql, nil.sql);
+  assert.deepEqual(absent.binds, nil.binds);
+  assert.equal(absent.binds[0], '私人书签');
 });

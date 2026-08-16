@@ -1,5 +1,6 @@
 import { errorResponse, sanitizeUrl } from '../lib/utils.js';
-import { ensureSiteFavicon, getSite, incrementSiteHits } from '../services/siteService.js';
+import { getSite, incrementSiteHits } from '../services/siteService.js';
+import { ensureSiteFavicon } from '../services/iconService.js';
 import { getAccessContext } from '../services/accessService.js';
 
 export async function handleGoRequest(request, env, ctx) {

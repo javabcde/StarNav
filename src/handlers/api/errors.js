@@ -1,6 +1,7 @@
-import { conflict, errorResponse, forbidden, jsonResponse, unauthorized } from '../../lib/utils.js';
-import { hasBearerToken, tokenHasScope } from '../../lib/auth.js';
+import { conflict, errorResponse, forbidden, isSubmissionEnabled, jsonResponse, unauthorized } from '../../lib/utils.js';
+import { hasBearerToken, isAdminAuthenticated, tokenHasScope, validateApiToken } from '../../lib/auth.js';
 import { getAccessContext } from '../../services/accessService.js';
+import { getSystemSettings } from '../../services/systemSettingsService.js';
 
 export async function requireAdmin(request, env, options = {}) {
   const { allowApiToken = false, scope = 'write' } = options;
@@ -24,6 +25,22 @@ export async function requireAdmin(request, env, options = {}) {
     allowApiToken,
     requiredScope: allowApiToken ? scope : undefined,
   });
+}
+
+/**
+ * 公开投稿鉴权（管理员 cookie / write token / 投稿开关三段合一）：
+ * /site/preview 与 /submit/suggest-* 共用，替代三份逐字复制的内联判定。
+ * 返回 null 表示通过，否则为错误响应。
+ */
+export async function requireSubmitter(request, env) {
+  const adminAuthed = await isAdminAuthenticated(request, env);
+  const tokenAuth = adminAuthed ? { authenticated: true } : await validateApiToken(request, env, 'write');
+  if (!adminAuthed && !tokenAuth.authenticated) {
+    const settings = await getSystemSettings(env);
+    if (!isSubmissionEnabled(env, settings)) return errorResponse('Public submission disabled', 403);
+  }
+  if (tokenAuth.forbidden) return errorResponse('API token scope is insufficient', 403);
+  return null;
 }
 
 export async function handleApiError(error) {

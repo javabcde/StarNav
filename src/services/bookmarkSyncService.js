@@ -260,14 +260,23 @@ export async function syncBookmarks(env, items, { source = 'extension', request,
     );
   }
 
+  const stats = {
+    added: toInsert.length,
+    updated: toUpdate.length,
+    deleted: toDelete.length,
+    skipped,
+    failed: failed.length,
+  };
+  if (!dryRun) {
+    await logOperation(env, {
+      action: OPERATION_LOG_ACTIONS.SYNC_BOOKMARK,
+      target: 'site',
+      summary: `书签同步（${source}）：新增 ${stats.added} 更新 ${stats.updated} 删除 ${stats.deleted} 跳过 ${stats.skipped} 失败 ${stats.failed}`,
+      request,
+    });
+  }
   return {
-    stats: {
-      added: toInsert.length,
-      updated: toUpdate.length,
-      deleted: toDelete.length,
-      skipped,
-      failed: failed.length,
-    },
+    stats,
     failedItems: failed,
     deletedItems: toDelete.map((site) => ({ id: site.id, name: site.name, url: site.url })),
   };
@@ -277,14 +286,20 @@ export async function syncBookmarks(env, items, { source = 'extension', request,
  * 解除同步：sync_source 置 manual 并清除浏览器书签 ID，此后不再参与对齐。
  * @returns {Promise<{changed: boolean, exists: boolean}>}
  */
-export async function unsyncSite(env, id) {
+export async function unsyncSite(env, id, { ip } = {}) {
   const siteId = Number(id);
   if (!Number.isFinite(siteId) || siteId <= 0) return { changed: false, exists: false };
   const result = await env.NAV_DB
     .prepare('UPDATE sites SET sync_source = ?, browser_bookmark_id = NULL, update_time = CURRENT_TIMESTAMP WHERE id = ? AND sync_source = ?')
     .bind(SYNC_SOURCE_MANUAL, siteId, SYNC_SOURCE_BROWSER)
     .run();
-  if ((result?.meta?.changes || 0) > 0) return { changed: true, exists: true };
+  if ((result?.meta?.changes || 0) > 0) {
+    await logOperation(env, { action: OPERATION_LOG_ACTIONS.SYNC_BOOKMARK_UNSYNC, target: 'site', targetId: siteId, summary: '解除书签同步', ip });
+    return { changed: true, exists: true };
+  }
   const row = await env.NAV_DB.prepare('SELECT 1 AS found FROM sites WHERE id = ?').bind(siteId).first();
+  if (row) {
+    await logOperation(env, { action: OPERATION_LOG_ACTIONS.SYNC_BOOKMARK_UNSYNC, target: 'site', targetId: siteId, summary: '解除书签同步（已是手动书签）', ip });
+  }
   return { changed: false, exists: Boolean(row) };
 }

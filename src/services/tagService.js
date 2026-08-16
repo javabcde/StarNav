@@ -1,4 +1,5 @@
 import { cleanText } from '../lib/utils.js';
+import { logOperation, OPERATION_LOG_ACTIONS } from './operationLogService.js';
 
 export function normalizeTags(value) {
   if (Array.isArray(value)) {
@@ -86,7 +87,7 @@ export async function getSiteIdsByTag(env, tagName) {
   return (results || []).map((row) => Number(row.site_id)).filter(Number.isFinite);
 }
 
-export async function mergeTags(env, { source, target } = {}) {
+export async function mergeTags(env, { source, target } = {}, { ip } = {}) {
   const sourceName = cleanText(source);
   const targetName = cleanText(target);
   if (!sourceName || !targetName) throw new Error('source and target tags are required');
@@ -114,6 +115,7 @@ export async function mergeTags(env, { source, target } = {}) {
 
   await env.NAV_DB.prepare('DELETE FROM site_tags WHERE tag_id = ?').bind(sourceTag.id).run();
   await env.NAV_DB.prepare('DELETE FROM tags WHERE id = ?').bind(sourceTag.id).run();
+  await logOperation(env, { action: OPERATION_LOG_ACTIONS.TAG_MERGE, target: 'tag', summary: `合并标签：${sourceName} → ${targetName}`, ip });
 
   return {
     source: sourceName,
@@ -147,7 +149,7 @@ export async function listSitesNeedingTags(env, { limit = 20, maxTags = 0 } = {}
   return results || [];
 }
 
-export async function applySiteTagSuggestions(env, { items = [], mode = 'append' } = {}) {
+export async function applySiteTagSuggestions(env, { items = [], mode = 'append' } = {}, { ip } = {}) {
   const normalizedItems = (Array.isArray(items) ? items : [])
     .map((item) => ({
       siteId: Number(item?.siteId || item?.id),
@@ -182,13 +184,15 @@ export async function applySiteTagSuggestions(env, { items = [], mode = 'append'
     results.push({ siteId: item.siteId, ok: true, siteName: site.name, tags: nextTags });
   }
 
-  return {
+  const result = {
     mode: safeMode,
     total: normalizedItems.length,
     updated: results.filter((item) => item.ok).length,
     failed: results.filter((item) => !item.ok).length,
     results,
   };
+  await logOperation(env, { action: OPERATION_LOG_ACTIONS.TAG_APPLY_SUGGESTIONS, target: 'tag', summary: `应用标签建议 ${normalizedItems.length} 个书签 (${safeMode})`, ip });
+  return result;
 }
 
 export async function listTags(env) {
