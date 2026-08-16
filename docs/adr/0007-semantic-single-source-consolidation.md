@@ -21,7 +21,7 @@ Status: accepted
   - 搜索评分与首页徽章同因 NULL 状态码不再误判 dead（与 SQL 过滤语义对齐）；
   - 分类入库校验放行此前被严格白名单拒绝的合法 CSS 颜色名（如 `rebeccapurple`）——渲染端历史上已放行，并轨取并集，恶意载荷拒绝面不变；
   - auth 端 cookie 值现在会 URL 解码（畸形序列回退原值）——会话/token 值均为安全字符集，实际行为无感知变化。
-- **性能**：PUT /settings/ai 从约 18-19 次 D1 往返降至 2 次（1 批量读 + 1 批量写）；getAiSettings 从 6 次串行读降至 1 次。
+- **性能**：PUT /settings/ai 从约 17-18 次 D1 往返降至 3 次（getAiSettings 批量读 + setSettings 批量写 + 返回前回读一次）；getAiSettings 单读从 6 次串行降至 1 次。
 - **导入面**：siteService/aiService/aiModelService/auth.js 保留 re-export 垫片（存量测试与调用方 import 面不变）；siteHealthService 因 getSite 反向依赖不设垫片，index.js 与 sites 端点已直连。
 - **测试**：healthQuery.test.js 补 JS 谓词矩阵（含 NULL 状态码回归锁与三态互斥）；新增 sitePreview.test.js（6 例：抽取/归一/非 HTML/错误路径/截断）；新增 categoryService.test.js（树遍历 5 例 + 颜色校验 6 例，含两套旧白名单的分歧样本）；aiService.test.js 的 D1 mock 补批量读分发。
 - **术语**：CONTEXT.md 新增「站点健康」「AI 接入」两节（站点健康三态 / AI 设置）。

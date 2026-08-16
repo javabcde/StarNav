@@ -1,4 +1,6 @@
-// 站点域核心（sites 表）：CRUD、列表/读取查询、搜索评分、站点/搜索分析、健康检测与预览抓取。
+// 站点域核心（sites 表）：CRUD、列表/读取查询、搜索评分、站点/搜索分析。
+// 健康检测执行在 siteHealthService.js（本文件不设垫片——依赖本文件 getSite，避免双向深循环），
+// 健康谓词单一源在 healthQuery.js，预览抓取在 lib/sitePreview.js（本文件保留 re-export 垫片）。
 // 六领域门面拆分（2026-08-16 架构评审候选 5）：
 // - 健康谓词（dead/ok/unknown）单一渲染源在 healthQuery.js，本文件 getSites/searchSites 与
 //   systemHealthService 的 count 查询统一改调，不再各自手写 SQL 副本；
@@ -11,11 +13,12 @@
 //   /api/search 端点链路、getSearchAnalytics 与 getSiteAnalytics 同属 analytics 读簇，随簇整体保留。
 import { cleanText, normalizeIdList, normalizeSortOrder, nullableText } from '../lib/utils.js';
 import { PRIVATE_BOOKMARK_CATEGORY } from './privateBookmarkService.js';
+import { resolveSpaceId } from './spaceService.js';
 import { getDescendantCategoryNames, upsertCategoryByName } from './categoryService.js';
 import { attachTagsToSites, normalizeTags, setSiteTags } from './tagService.js';
 import { faviconFailedKey } from './iconService.js';
 import { logOperation, OPERATION_LOG_ACTIONS } from './operationLogService.js';
-import { deadSiteSql, isDeadSite, okSiteSql, unknownSiteSql } from './healthQuery.js';
+import { deadSiteSql, isDeadSite, isOkSite, okSiteSql, unknownSiteSql } from './healthQuery.js';
 import { canAccessSite, canListSite, isPrivateSite, normalizeVisibility, SITE_VISIBILITIES, visibilityWhere } from './accessService.js';
 // 可见性规则已迁入 accessService（docs/adr/0003）；re-export 保持存量测试 import 面。
 export { canAccessSite, canListSite, isPrivateSite, normalizeVisibility, SITE_VISIBILITIES, visibilityWhere } from './accessService.js';
@@ -193,7 +196,7 @@ function matchesAdvancedFilters(site, filters) {
 
   if (filters.visibility && visibility !== filters.visibility) return false;
   if (filters.health === 'dead' && !isDead) return false;
-  if (filters.health === 'ok' && isDead) return false;
+  if (filters.health === 'ok' && !isOkSite(site)) return false;
   if (filters.tags.length && !filters.tags.every((tag) => tags.some((item) => item.includes(normalizeSearchText(tag))))) return false;
   if (filters.categories.length && !filters.categories.every((cat) => category.includes(normalizeSearchText(cat)))) return false;
   if (filters.urls.length && !filters.urls.every((part) => {

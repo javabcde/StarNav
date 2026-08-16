@@ -4,15 +4,30 @@ import assert from 'node:assert/strict';
 import {
   canAccessSite,
   canListSite,
+  getSites,
   listSitesByIds,
   normalizeDuplicateUrlKey,
   normalizeImportPayload,
   previewImportSites,
   searchSites,
+
 } from '../src/services/siteService.js';
+
+
+test('getSites：space 按名称过滤经 resolveSpaceId 解析（回归锁：评审 Critical——导入面被误删曾致 500）', async () => {
+  const env = createMockEnv({
+    sites: [{ id: 1, name: '甲', url: 'https://a.example.com', catelog: '工具', visibility: 'public' }],
+    spaces: [{ id: 7, slug: 'work', name: '工作空间' }],
+  });
+
+  const result = await getSites(env, { space: 'work' });
+
+  assert.equal(result.total, 1, '按名过滤应解析到空间并正常返回，而非 ReferenceError');
+  assert.equal(result.data[0].name, '甲');
+});
 import { ensureSiteFavicon, faviconFailedKey } from '../src/services/iconService.js';
 
-function createMockEnv({ sites = [], tagRows = [], existingCategories = [], existingUrls = [] } = {}) {
+function createMockEnv({ sites = [], tagRows = [], existingCategories = [], existingUrls = [], spaces = [] } = {}) {
   return {
     NAV_DB: {
       prepare(sql) {
@@ -35,6 +50,10 @@ function createMockEnv({ sites = [], tagRows = [], existingCategories = [], exis
   };
 
   function createStatement(sql, binds) {
+    function findSpaceRow() {
+      const bySlug = sql.includes('WHERE slug =');
+      return spaces.find((sp) => (bySlug ? sp.slug === binds[0] : sp.id === Number(binds[0])));
+    }
     return {
       async all() {
         if (sql.includes('FROM site_tags st') && sql.includes('JOIN tags t')) {
@@ -67,6 +86,13 @@ function createMockEnv({ sites = [], tagRows = [], existingCategories = [], exis
         return { results: [] };
       },
       async first() {
+        if (sql.includes('FROM spaces')) {
+          const row = findSpaceRow();
+          return row ? { ...row } : null;
+        }
+        if (sql.includes('COUNT(*)') && sql.includes('FROM sites')) {
+          return { total: sites.length };
+        }
         return null;
       },
       async run() {
