@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { renderHomePage } from '../src/pages/home.js';
 import { homeClientScript } from '../src/pages/home/clientScript.js';
+import { adminJs } from '../src/pages/admin/scripts/index.js';
 import { ACCENTS, accentVarsCss } from '../src/pages/home/accents.js';
 import { CARD_CONTRACT } from '../src/pages/home/cardContract.js';
 
@@ -129,4 +130,31 @@ test('homeClientScript：顶部内联 esbuild 助手垫片（wrangler keepNames 
   const shim = 'var __defProp=Object.defineProperty;var __name=(t,v)=>__defProp(t,"name",{value:v,configurable:true});';
   assert.ok(script.includes(shim), 'homeClientScript 缺少 __name/__defProp 垫片——wrangler 部署后浏览器端 ReferenceError');
   assert.ok(script.indexOf(shim) < script.indexOf('const escapeText ='), '垫片须位于全部 toString 内联函数之前');
+});
+
+test('homeClientScript：themeDefaults 定义在位（623caf0 曾删定义留引用致 ReferenceError）', () => {
+  const script = homeClientScript({ defaultAccent: 'blue', pageBackgroundImage: false, defaultLayout: 'grid', i18n: undefined, myUsageScript: () => '', frontAdminScript: () => '', dragScript: () => '', adminAuthed: false, canDragSort: false });
+  assert.ok(script.includes("const themeDefaults={accent:'blue',density:'comfortable',bg:'soft',view:'detail',layout:'grid'};"), 'themeDefaults 定义缺失——主题初始化/重置/预设全链路 ReferenceError');
+});
+
+test('模板脚本引用完整性：所有调用点标识符均有定义（themeDefaults/IS_* 同类事故回归锁）', () => {
+  const home = homeClientScript({ defaultAccent: 'blue', pageBackgroundImage: false, defaultLayout: 'grid', i18n: undefined, myUsageScript: () => '', frontAdminScript: () => '', dragScript: () => '', adminAuthed: false, canDragSort: false });
+  const GLOBALS = new Set(('window document localStorage sessionStorage navigator fetch setTimeout clearTimeout setInterval clearInterval Date JSON Math String Number Boolean Array Object RegExp URL URLSearchParams DOMParser FileReader AbortController encodeURIComponent decodeURIComponent encodeURI decodeURI requestIdleCallback console alert confirm prompt location history Event CustomEvent Blob FormData Promise Intl performance requestAnimationFrame cancelAnimationFrame TextDecoder TextEncoder globalThis undefined NaN Infinity structuredClone getComputedStyle Element HTMLElement Node HTMLDocument self addEventListener removeEventListener dispatchEvent queueMicrotask XMLHttpRequest MutationObserver Error TypeError SyntaxError RangeError Map Set WeakMap WeakSet').split(' '));
+  const KEYWORDS = new Set(('if function var let const for while return catch then finally async await new typeof instanceof delete void this super class extends import export default switch case break continue do else in of try throw yield debugger').split(' '));
+  const check = (name, script, allowlist) => {
+    const defined = new Set();
+    let m;
+    const defRe = /(?:function|class)\s+([A-Za-z_$][\w$]*)\s*\(|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g;
+    while ((m = defRe.exec(script))) { if (m[1]) defined.add(m[1]); if (m[2]) defined.add(m[2]); }
+    const missing = new Set();
+    const callRe = /(?<![.\w)\]'"\x60:\/])([a-zA-Z_$][\w$]*)\s*\(/g;
+    while ((m = callRe.exec(script))) {
+      const id = m[1];
+      if (defined.has(id) || GLOBALS.has(id) || KEYWORDS.has(id) || allowlist.includes(id)) continue;
+      missing.add(id);
+    }
+    assert.deepEqual([...missing], [], `${name} 引用了未定义的标识符——模板/收编漏定义（themeDefaults/IS_DEAD_SITE 同类事故）`);
+  };
+  check('homeClientScript', home, ['toString']); // 仅注释/成员调用误报（.toString() 被 . 排除，裸调用不存在）
+  check('adminJs', adminJs, ['toString', 'Logo', 'resolve', 'onSuccess', 'gradient']); // 注释/HTML 字符串/Promise 参数误报，非模板符号
 });

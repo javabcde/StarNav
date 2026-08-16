@@ -194,6 +194,7 @@ document.addEventListener('DOMContentLoaded',function(){
   const themeToggle=document.getElementById('themeToggle');
   const themeMeta=document.querySelector('meta[name="theme-color"]');
   const themeColors=${themeColorsLiteral};
+  const themeDefaults={accent:'${escapeHTML(defaultAccent)}',density:'comfortable',bg:'${pageBackgroundImage ? 'image' : 'soft'}',view:'detail',layout:'${escapeHTML(defaultLayout)}'};
   function getThemePref(key){return localStorage.getItem('nav:'+key)||themeDefaults[key]}
   function setThemePref(key,value){document.documentElement.dataset[key]=value;localStorage.setItem('nav:'+key,value);if(key==='accent'&&themeMeta)themeMeta.setAttribute('content',themeColors[value]||themeColors.blue);if(key==='layout')applyLayout(value);updateThemeControls()}
   function updateThemeToggle(){if(themeToggle)themeToggle.textContent=document.documentElement.classList.contains('dark')?'☀️':'🌙'}
