@@ -21,11 +21,11 @@ async function getKey(env) {
   return cachedKey;
 }
 
-// ── PBKDF2 密码哈希（解锁会话密码存储格式）────────────────────────
+// ── PBKDF2 密码哈希（规范五段格式，密码存储全站唯一实现）──────────────
 // 格式：pbkdf2$sha256$<iterations>$<salt-b64>$<hash-b64>（100k 迭代，PBKDF2-SHA256）。
-// 使用者：siteLockService / privateBookmarkService（整站锁与私人书签密码）。
-// 注意：auth.js 管理员密码是另一套 hex 双段格式（pbkdf2$<salt>$<hash>），
-// 存储布局不兼容、不可混用——auth.js 保留自身实现，勿迁移到本段。
+// 使用者：siteLockService / privateBookmarkService（整站锁与私人书签密码）
+// 与 auth.js（管理员密码）——管理员旧 hex 双段格式（pbkdf2$<salt>$<hash>）已合并：
+// 登录时兼容校验旧值并原地升级为规范五段格式，新哈希一律本格式，勿再新增第二套布局。
 const PASSWORD_HASH_PREFIX = 'pbkdf2';
 const PASSWORD_HASH_ITERATIONS = 100000;
 

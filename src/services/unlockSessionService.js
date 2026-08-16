@@ -9,6 +9,7 @@ import {
   isHashedPassword,
   verifyPasswordHash,
 } from '../lib/crypto.js';
+import { buildSessionCookie as buildCookieString, shouldRenew } from '../lib/sessionPolicy.js';
 import { cleanText } from '../lib/utils.js';
 import { getSettingRecord, setSetting } from './settingsService.js';
 
@@ -88,26 +89,16 @@ export function createUnlockSessionManager({
   }
 
   /**
-   * 构建解锁 Cookie。session 时长不写 Max-Age（浏览器关闭即失效）。
+   * 构建解锁 Cookie。session 时长不写 Max-Age（浏览器关闭即失效）；
+   * 属性集与常量比较统一收编 lib/sessionPolicy.js。
    */
   function buildCookie(token, options = {}) {
     const { maxAge = DEFAULT_TTL_SECONDS, duration } = options;
-    const parts = [
-      `${cookieName}=${token}`,
-      'Path=/',
-      'HttpOnly',
-      'SameSite=Strict',
-      // 不设 Secure：夸克/VIA 等移动浏览器会丢弃带 Secure 的 Cookie（探针实测）。
-      // 站点为 https-only（CF 自定义域名），去掉无实际安全损失。
-    ];
-    if (duration !== 'session') {
-      parts.push(`Max-Age=${maxAge}`);
-    }
-    return parts.join('; ');
+    return buildCookieString(cookieName, token, { maxAge, duration });
   }
 
   function buildClearCookie() {
-    return buildCookie('', { maxAge: 0 });
+    return buildCookieString(cookieName, '', { maxAge: 0 });
   }
 
   /**
@@ -144,8 +135,9 @@ export function createUnlockSessionManager({
     } catch {
       // 兼容旧 payload 格式
     }
-    const remainingMs = createdAt ? createdAt + renewTtl * 1000 - Date.now() : 0;
-    if (!createdAt || remainingMs <= (renewTtl * 1000) / 2) {
+    // 滑动续期降频：剩余 > TTL/2 跳过 KV 写（判定收编 lib/sessionPolicy.js shouldRenew；
+    // createdAt 缺失的旧 payload 保守续期）。每请求 1 写 → 约每 TTL/2 1 写。
+    if (shouldRenew({ createdAt, ttlMs: renewTtl * 1000, now: Date.now() })) {
       await env.NAV_AUTH.put(sessionKey, payload, { expirationTtl: renewTtl });
     }
     return true;

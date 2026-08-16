@@ -1,4 +1,4 @@
-import { clearLoginFailures, registerLoginFailure } from '../lib/auth.js';
+import { createIpThrottle } from '../lib/ipThrottle.js';
 import { cleanText } from '../lib/utils.js';
 import { deleteSetting, getSettingRecord, setSetting } from './settingsService.js';
 import { createUnlockSessionManager } from './unlockSessionService.js';
@@ -32,13 +32,17 @@ const unlockSession = createUnlockSessionManager({
 });
 
 // ── 试错限速（独立于后台登录的计数）────────────────────────────────────
+// 机制（IP 提取 / 计数 / TTL）收编 lib/ipThrottle.js；此处绑定整站锁策略
+// （site-lock:throttle: 前缀、5 次 / 15 分钟），与后台登录计数互不干扰。
 const SITE_LOCK_THROTTLE_PREFIX = 'site-lock:throttle:';
 const SITE_LOCK_MAX_ATTEMPTS = 5;
 const SITE_LOCK_LOCKOUT_SECONDS = 15 * 60;
 
-function getClientIp(request) {
-  return request.headers.get('CF-Connecting-IP') || request.headers.get('X-Real-IP') || 'unknown';
-}
+const siteLockThrottle = createIpThrottle({
+  prefix: SITE_LOCK_THROTTLE_PREFIX,
+  maxAttempts: SITE_LOCK_MAX_ATTEMPTS,
+  lockoutSeconds: SITE_LOCK_LOCKOUT_SECONDS,
+});
 
 /**
  * 读取当前客户端 IP 的整站锁密码失败状态（与后台登录计数相互独立）。
@@ -47,34 +51,23 @@ function getClientIp(request) {
  * @param {Request} request 当前请求。
  * @returns {Promise<{ip: string, key: string, count: number, locked: boolean}>}
  */
-export async function getSiteLockThrottle(env, request) {
-  const ip = getClientIp(request);
-  const key = `${SITE_LOCK_THROTTLE_PREFIX}${ip}`;
-  const raw = await env.NAV_AUTH.get(key);
-  let count = 0;
-  if (raw) {
-    try {
-      count = Number(JSON.parse(raw).count) || 0;
-    } catch {
-      count = 0;
-    }
-  }
-  return { ip, key, count, locked: count >= SITE_LOCK_MAX_ATTEMPTS };
+export function getSiteLockThrottle(env, request) {
+  return siteLockThrottle.get(env, request);
 }
 
 /**
  * 记录一次整站锁密码失败，并刷新锁定窗口 TTL（持续失败则持续锁定）。
- * 复用 auth.js 的 registerLoginFailure（同样的计数/过期语义），仅 key 前缀不同。
+ * 与后台登录共用 ipThrottle 机制（同样的计数/过期语义），仅 key 前缀不同。
  */
 export async function registerSiteLockFailure(env, key, currentCount = 0) {
-  await registerLoginFailure(env, key, currentCount);
+  await siteLockThrottle.register(env, key, currentCount);
 }
 
 /**
  * 整站锁密码验证成功后清除失败计数。
  */
 export async function clearSiteLockFailures(env, key) {
-  await clearLoginFailures(env, key);
+  await siteLockThrottle.clear(env, key);
 }
 
 /**

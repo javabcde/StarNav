@@ -1,3 +1,7 @@
+import { hashPassword, verifyPasswordHash } from './crypto.js';
+import { createIpThrottle } from './ipThrottle.js';
+import { buildSessionCookie as buildCookieString, shouldRenew } from './sessionPolicy.js';
+
 export const SESSION_COOKIE_NAME = 'nav_admin_session';
 const SESSION_PREFIX = 'session:';
 const API_TOKEN_PREFIX = 'api_token:';
@@ -64,14 +68,8 @@ export function parseCookies(cookieHeader = '') {
  */
 export function buildSessionCookie(token, options = {}) {
   const { maxAge = SESSION_TTL_SECONDS } = options;
-  return [
-    `${SESSION_COOKIE_NAME}=${token}`,
-    'Path=/',
-    `Max-Age=${maxAge}`,
-    'HttpOnly',
-    'SameSite=Strict',
-    // 不设 Secure：夸克/VIA 等移动浏览器会丢弃带 Secure 的 Cookie；站点 https-only，无实际损失
-  ].join('; ');
+  // 属性集（Path/Max-Age/HttpOnly/SameSite、不设 Secure）收编 lib/sessionPolicy.js
+  return buildCookieString(SESSION_COOKIE_NAME, token, { maxAge });
 }
 
 /**
@@ -146,9 +144,8 @@ export async function validateAdminSession(request, env) {
   // 滑动续期降频：距上次续期不足 SESSION_TTL_SECONDS/2 时跳过 KV 写。
   // KV 内 TTL 仍有 ≥ 一半余量，会话不会提前过期；持续活跃的会话每半个
   // 滑动窗口续期一次，KV 写从每请求 1 次降到约每 6 小时 1 次。
-  const lastRefresh = Number(parsedPayload?.lastRefresh) || 0;
   const now = Date.now();
-  if (now - (lastRefresh || createdAt) >= (SESSION_TTL_SECONDS * 1000) / 2) {
+  if (shouldRenew({ createdAt, refreshedAt: parsedPayload?.lastRefresh, ttlMs: SESSION_TTL_SECONDS * 1000, now })) {
     if (parsedPayload) {
       await refreshAdminSession(env, token, JSON.stringify({ ...parsedPayload, lastRefresh: now }));
     } else {
@@ -395,7 +392,21 @@ export async function validateApiToken(request, env, requiredScope = 'write') {
   return { authenticated: false };
 }
 
-async function hashPassword(password, salt) {
+// ── 管理员密码哈希 ────────────────────────────────────────────────────
+// 新哈希一律规范五段格式（crypto.js hashPassword：pbkdf2$sha256$100000$<salt-b64>$<hash-b64>，
+// 常量时间比较内置于 verifyPasswordHash）。历史两代格式在登录时兼容校验并原地升级：
+//   - 旧版明文：命中后升级为规范哈希；
+//   - 旧 hex 双段格式 pbkdf2$<salt-hex>$<hash-hex>：用旧算法常量时间校验，命中后原地升级。
+
+/**
+ * 旧 hex 双段格式的哈希段派生（PBKDF2-SHA256，100k 迭代，输出 hex）。
+ * 仅用于校验历史存储值，不再用于新写入。
+ *
+ * @param {string} password 明文密码。
+ * @param {string} salt 旧格式 hex 盐。
+ * @returns {Promise<string>} hex 摘要。
+ */
+async function legacyHashPasswordHex(password, salt) {
   const encoder = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
@@ -418,12 +429,6 @@ async function hashPassword(password, salt) {
   return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function generateSalt() {
-  const array = new Uint8Array(16);
-  crypto.getRandomValues(array);
-  return Array.from(array, (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
 async function constantTimeCompare(a, b) {
   if (a.length !== b.length) return false;
   const aBytes = new TextEncoder().encode(a);
@@ -438,7 +443,8 @@ async function constantTimeCompare(a, b) {
 /**
  * 校验后台管理员用户名和密码。
  *
- * 兼容旧版明文密码：首次使用明文密码登录成功后，会自动升级为 PBKDF2 哈希存储。
+ * 密码存储三态兼容，命中正确密码后统一升级为规范五段格式（crypto.js）：
+ * 明文 → 旧 hex 双段哈希 → 规范五段哈希。
  *
  * @param {object} env Cloudflare Workers 环境绑定，需包含 `NAV_AUTH`。
  * @param {string} name 管理员用户名。
@@ -454,35 +460,46 @@ export async function verifyAdminCredentials(env, name, password) {
 
   const trimmedPassword = String(password || '').trim();
 
-  // 兼容旧版明文密码（首次登录后自动升级为哈希）
+  // 兼容旧版明文密码（首次登录后自动升级为规范哈希）
   if (!storedPasswordData.startsWith(PASSWORD_HASH_PREFIX)) {
     const isValid = trimmedPassword === storedPasswordData;
     if (isValid) {
-      // 自动升级为哈希存储
-      const salt = generateSalt();
-      const hash = await hashPassword(trimmedPassword, salt);
-      await env.NAV_AUTH.put('admin_password', `${PASSWORD_HASH_PREFIX}${salt}$${hash}`);
+      // 自动升级为哈希存储（规范五段格式，随机盐）
+      await env.NAV_AUTH.put('admin_password', await hashPassword(trimmedPassword));
       console.log('[auth] Password upgraded to hashed format');
     }
     return isValid;
   }
 
-  // 验证哈希密码
-  const parts = storedPasswordData.slice(PASSWORD_HASH_PREFIX.length).split('$');
-  if (parts.length !== 2) return false;
-  const [salt, storedHash] = parts;
-  const computedHash = await hashPassword(trimmedPassword, salt);
-  return constantTimeCompare(computedHash, storedHash);
+  const segments = storedPasswordData.split('$');
+  if (segments.length === 3) {
+    // 旧 hex 双段格式（pbkdf2$<salt-hex>$<hash-hex>）：旧算法常量时间校验，命中后原地升级
+    const [, salt, storedHash] = segments;
+    const computedHash = await legacyHashPasswordHex(trimmedPassword, salt);
+    const isValid = await constantTimeCompare(computedHash, storedHash);
+    if (isValid) {
+      await env.NAV_AUTH.put('admin_password', await hashPassword(trimmedPassword));
+      console.log('[auth] Password upgraded to canonical pbkdf2 format');
+    }
+    return isValid;
+  }
+
+  // 规范五段格式：crypto.verifyPasswordHash（格式/迭代数校验 + 常量时间比较）
+  return verifyPasswordHash(trimmedPassword, storedPasswordData);
 }
 
 // ── 登录失败限速（缓解后台登录在线爆破，#1）────────────────────────────
+// 机制（IP 提取 / 计数 / TTL）收编 lib/ipThrottle.js；此处绑定后台登录策略
+// （login_fail: 前缀、5 次 / 15 分钟），导出面与 KV 布局保持不变。
 const LOGIN_FAIL_PREFIX = 'login_fail:';
 const LOGIN_MAX_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_SECONDS = 15 * 60;
 
-function getClientIp(request) {
-  return request.headers.get('CF-Connecting-IP') || request.headers.get('X-Real-IP') || 'unknown';
-}
+const loginThrottle = createIpThrottle({
+  prefix: LOGIN_FAIL_PREFIX,
+  maxAttempts: LOGIN_MAX_ATTEMPTS,
+  lockoutSeconds: LOGIN_LOCKOUT_SECONDS,
+});
 
 /**
  * 读取当前客户端 IP 的登录失败状态。
@@ -491,19 +508,8 @@ function getClientIp(request) {
  * @param {Request} request 当前请求。
  * @returns {Promise<{ip: string, key: string, count: number, locked: boolean}>}
  */
-export async function getLoginThrottle(env, request) {
-  const ip = getClientIp(request);
-  const key = `${LOGIN_FAIL_PREFIX}${ip}`;
-  const raw = await env.NAV_AUTH.get(key);
-  let count = 0;
-  if (raw) {
-    try {
-      count = Number(JSON.parse(raw).count) || 0;
-    } catch {
-      count = 0;
-    }
-  }
-  return { ip, key, count, locked: count >= LOGIN_MAX_ATTEMPTS };
+export function getLoginThrottle(env, request) {
+  return loginThrottle.get(env, request);
 }
 
 /**
@@ -515,10 +521,7 @@ export async function getLoginThrottle(env, request) {
  * @returns {Promise<void>}
  */
 export async function registerLoginFailure(env, key, currentCount = 0) {
-  const count = (Number(currentCount) || 0) + 1;
-  await env.NAV_AUTH.put(key, JSON.stringify({ count, updatedAt: Date.now() }), {
-    expirationTtl: LOGIN_LOCKOUT_SECONDS,
-  });
+  await loginThrottle.register(env, key, currentCount);
 }
 
 /**
@@ -529,6 +532,5 @@ export async function registerLoginFailure(env, key, currentCount = 0) {
  * @returns {Promise<void>}
  */
 export async function clearLoginFailures(env, key) {
-  if (!key) return;
-  await env.NAV_AUTH.delete(key);
+  await loginThrottle.clear(env, key);
 }
