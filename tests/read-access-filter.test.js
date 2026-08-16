@@ -104,7 +104,7 @@ test('getSiteAnalytics：管理员全可见', async () => {
 
 test('chat 排行泄露回归：匿名 chat 排行意图不返回非公开站点', async () => {
   const env = createMockEnv({ sites: SITES });
-  const result = await chatWithAiAssistant(env, {}, {
+  const result = await chatWithAiAssistant(env, {
     message: '访问最多的书签有哪些',
     previousSites: [],
     access: { adminAuthed: false, privateUnlocked: false },
@@ -121,7 +121,7 @@ test('chat 排行泄露回归：匿名 chat 排行意图不返回非公开站点
 
 test('chat 排行泄露回归：解锁上下文可含 private（与 searchSites 同语义）', async () => {
   const env = createMockEnv({ sites: SITES });
-  const result = await chatWithAiAssistant(env, {}, {
+  const result = await chatWithAiAssistant(env, {
     message: '访问最多的书签有哪些',
     previousSites: [],
     access: { adminAuthed: false, privateUnlocked: true },

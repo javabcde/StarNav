@@ -8,7 +8,9 @@ import { listTags } from './tagService.js';
 import {
   buildLocalAnswer,
   detectBookmarkIntent,
+  extractJsonArray,
   filterSitesByContainsKeyword,
+  formatPopularSiteLine,
   formatSiteContext,
   inferSearchKeywords,
   normalizeCategorySuggestion,
@@ -23,6 +25,9 @@ import { callOpenAiCompatible, DEFAULT_AI_SETTINGS, getModelsEndpoint, normalize
 
 const AI_SETTING_PREFIX = 'ai.';
 
+// bool 字符串归一：仅 true / 'true' 视为 'true'，其余一律 'false'。
+// 与 aiModelService.normalizeAiSettingsPayload 的布尔判定同源；后者用于把载荷并入已存设置
+// （updateAiSettings / testAiSettings / listAiModels），本函数用于读取与强制写回时的归一。
 function boolString(value) {
   return String(value) === 'true' ? 'true' : 'false';
 }
@@ -45,18 +50,19 @@ export async function getAiSettings(env, { includeSecret = false } = {}) {
 }
 
 export async function updateAiSettings(env, payload = {}) {
-  const enabled = payload.enabled === true || payload.enabled === 'true' ? 'true' : 'false';
-  const enableThinking = payload.enableThinking === true || payload.enableThinking === 'true' ? 'true' : 'false';
-  const baseUrl = cleanText(payload.baseUrl) || DEFAULT_AI_SETTINGS.baseUrl;
-  const model = cleanText(payload.model) || DEFAULT_AI_SETTINGS.model;
-  const systemPrompt = cleanText(payload.systemPrompt) || DEFAULT_AI_SETTINGS.systemPrompt;
+  // merge+persist：先读已存设置，经 normalizeAiSettingsPayload 合并载荷——文本字段 cleanText
+  // 后回退到已存值再回退默认（缺省不再重置为默认值），'********' 星号占位不覆盖已存密钥。
+  // bool 字段保持既有强制归一：未提供视为 false（后台开关始终随表单整包提交）。
+  const saved = await getAiSettings(env, { includeSecret: true });
+  const settings = normalizeAiSettingsPayload(saved, payload);
 
-  await setSetting(env, `${AI_SETTING_PREFIX}enabled`, enabled);
-  await setSetting(env, `${AI_SETTING_PREFIX}enableThinking`, enableThinking);
-  await setSetting(env, `${AI_SETTING_PREFIX}baseUrl`, baseUrl);
-  await setSetting(env, `${AI_SETTING_PREFIX}model`, model);
-  await setSetting(env, `${AI_SETTING_PREFIX}systemPrompt`, systemPrompt);
+  await setSetting(env, `${AI_SETTING_PREFIX}enabled`, boolString(payload.enabled));
+  await setSetting(env, `${AI_SETTING_PREFIX}enableThinking`, boolString(payload.enableThinking));
+  await setSetting(env, `${AI_SETTING_PREFIX}baseUrl`, settings.baseUrl);
+  await setSetting(env, `${AI_SETTING_PREFIX}model`, settings.model);
+  await setSetting(env, `${AI_SETTING_PREFIX}systemPrompt`, settings.systemPrompt);
 
+  // apiKey 不走合并结果写回：仅当提交了非占位新值时才加密落库，避免明文/密文反复重写。
   const apiKey = cleanText(payload.apiKey);
   if (apiKey && apiKey !== '********') {
     await setSetting(env, `${AI_SETTING_PREFIX}apiKey`, await encryptSecret(env, apiKey));
@@ -263,14 +269,31 @@ export async function suggestTagsForSite(env, siteInput, { limit = 8 } = {}) {
   }
 }
 
+// 共享租户 runner：suggestTagMerges / analyzeNoTagSites / analyzeDuplicateSites /
+// analyzeSearchGaps / analyzeCategoryErrors 的统一骨架——
+// 设置门（ai.enabled + apiKey + 业务条件 run）→ callOpenAiCompatible（systemPrompt 覆写）
+// → extractJsonArray → 逐项映射 mapItems。返回结构化状态，envelope 由各租户自行整形：
+//   skipped：门未通过（未启用 / 缺 Key / 业务条件不满足），未调用模型；
+//   ai / local：模型返回且映射非空 / 映射为空；
+//   error：调用或解析失败（含错误对象，租户按各自语义回退）。
+async function runAiJsonTenant({ env, run = true, systemPrompt, message, context, mapItems }) {
+  const settings = await getAiSettings(env, { includeSecret: true });
+  const aiEnabled = settings.enabled === 'true' && Boolean(settings.apiKey);
+  if (!aiEnabled || !run) return { status: 'skipped', aiEnabled };
+
+  try {
+    const answer = await callOpenAiCompatible({ settings: { ...settings, systemPrompt }, message, context });
+    const items = mapItems(extractJsonArray(answer) || []);
+    return { status: items.length ? 'ai' : 'local', items, answer, aiEnabled };
+  } catch (error) {
+    return { status: 'error', error, aiEnabled };
+  }
+}
+
 export async function suggestTagMerges(env, { limit = 8 } = {}) {
   const tags = await listTags(env);
   const safeLimit = Math.min(20, Math.max(1, Number(limit) || 8));
   const fallback = suggestTagMergesLocally(tags, safeLimit);
-  const settings = await getAiSettings(env, { includeSecret: true });
-  if (settings.enabled !== 'true' || !settings.apiKey || tags.length < 2) {
-    return { suggestions: fallback, mode: 'local', configured: false, message: 'AI 未启用或标签数量不足，已返回本地规则合并建议。' };
-  }
   const tagLines = tags.slice(0, 160).map((tag) => `- ${tag.name}（书签数：${Number(tag.site_count) || 0}）`).join('\n');
   const prompt = [
     '请分析下面的标签列表，找出疑似同义、大小写差异、简称/全称重复、碎片化的标签合并建议。',
@@ -282,18 +305,28 @@ export async function suggestTagMerges(env, { limit = 8 } = {}) {
     '',
     `标签列表：\n${tagLines}`,
   ].join('\n');
-  try {
-    const answer = await callOpenAiCompatible({
-      settings: { ...settings, systemPrompt: '你是标签体系整理助手。你只能输出 JSON 数组，不要输出解释、标题、Markdown 或代码块。' },
-      message: prompt,
-      context: '后台标签合并建议任务，不需要回答用户问题。',
-    });
-    const parsed = JSON.parse((answer.match(/\[[\s\S]*\]/) || [answer])[0]);
-    const suggestions = normalizeTagMergeSuggestions(parsed, tags, safeLimit);
-    return { suggestions: suggestions.length ? suggestions : fallback, mode: suggestions.length ? 'ai' : 'local', configured: true, raw: answer.slice(0, 500) };
-  } catch (error) {
-    return { suggestions: fallback, mode: 'fallback', configured: true, message: `AI 标签合并建议失败，已返回本地规则建议。错误：${error.message}` };
+
+  const result = await runAiJsonTenant({
+    env,
+    run: tags.length >= 2,
+    systemPrompt: '你是标签体系整理助手。你只能输出 JSON 数组，不要输出解释、标题、Markdown 或代码块。',
+    message: prompt,
+    context: '后台标签合并建议任务，不需要回答用户问题。',
+    mapItems: (items) => normalizeTagMergeSuggestions(items, tags, safeLimit),
+  });
+
+  if (result.status === 'skipped') {
+    return { suggestions: fallback, mode: 'local', configured: false, message: 'AI 未启用或标签数量不足，已返回本地规则合并建议。' };
   }
+  if (result.status === 'error') {
+    return { suggestions: fallback, mode: 'fallback', configured: true, message: `AI 标签合并建议失败，已返回本地规则建议。错误：${result.error.message}` };
+  }
+  return {
+    suggestions: result.status === 'ai' ? result.items : fallback,
+    mode: result.status === 'ai' ? 'ai' : 'local',
+    configured: true,
+    raw: result.answer.slice(0, 500),
+  };
 }
 
 export async function suggestTagsForSites(env, siteIds = [], { limit = 8, batchLimit = 10 } = {}) {
@@ -406,27 +439,24 @@ export async function analyzeNoTagSites(env, { limit = 30 } = {}) {
   ).first();
   const totalNoTag = Number(totalRow?.cnt) || 0;
   const sites = (rows || []).map((r) => ({ id: r.id, name: r.name || '', url: r.url || '', desc: r.desc || '', catelog: r.catelog || '', visibility: r.visibility || 'public' }));
-  const settings = await getAiSettings(env, { includeSecret: true });
-  const aiEnabled = settings.enabled === 'true' && Boolean(settings.apiKey);
-  const suggestions = [];
-  if (aiEnabled && sites.length > 0) {
-    const batch = sites.slice(0, 10);
-    const siteLines = batch.map((s, i) => `${i + 1}. ${s.name}（分类：${s.catelog}；URL：${s.url}${s.desc ? '；描述：' + s.desc : ''}）`).join('\n');
-    try {
-      const answer = await callOpenAiCompatible({
-        settings: { ...settings, systemPrompt: '你是书签标签整理助手。只输出 JSON 数组，不要输出解释。' },
-        message: `以下书签没有标签。请为每个书签推荐 2-5 个中文标签。\n要求：标签要短(2-8字)；只返回JSON数组，每个元素 {"id": 书签序号, "tags": ["标签1","标签2"]}；不要解释。\n\n${siteLines}`,
-        context: '后台无标签书签分析任务。',
-      });
-      const parsed = JSON.parse((answer.match(/\[[\s\S]*\]/) || [answer])[0]);
-      for (const item of Array.isArray(parsed) ? parsed : []) {
-        const idx = Number(item?.id) - 1;
-        const tags = Array.isArray(item?.tags) ? item.tags.map((t) => cleanText(t)).filter(Boolean).slice(0, 5) : [];
-        if (idx >= 0 && idx < batch.length && tags.length) suggestions.push({ siteId: batch[idx].id, siteName: batch[idx].name, tags });
-      }
-    } catch (e) { console.warn('[ai-admin] analyzeNoTagSites AI failed:', e.message); }
-  }
-  return { type: 'no-tags', total: totalNoTag, sites, suggestions, aiEnabled };
+  const batch = sites.slice(0, 10);
+  const siteLines = batch.map((s, i) => `${i + 1}. ${s.name}（分类：${s.catelog}；URL：${s.url}${s.desc ? '；描述：' + s.desc : ''}）`).join('\n');
+  const result = await runAiJsonTenant({
+    env,
+    run: sites.length > 0,
+    systemPrompt: '你是书签标签整理助手。只输出 JSON 数组，不要输出解释。',
+    message: `以下书签没有标签。请为每个书签推荐 2-5 个中文标签。\n要求：标签要短(2-8字)；只返回JSON数组，每个元素 {"id": 书签序号, "tags": ["标签1","标签2"]}；不要解释。\n\n${siteLines}`,
+    context: '后台无标签书签分析任务。',
+    mapItems: (items) => items.map((item) => {
+      const idx = Number(item?.id) - 1;
+      const tags = Array.isArray(item?.tags) ? item.tags.map((t) => cleanText(t)).filter(Boolean).slice(0, 5) : [];
+      if (idx >= 0 && idx < batch.length && tags.length) return { siteId: batch[idx].id, siteName: batch[idx].name, tags };
+      return null;
+    }).filter(Boolean),
+  });
+  const suggestions = result.status === 'ai' ? result.items : [];
+  if (result.status === 'error') console.warn('[ai-admin] analyzeNoTagSites AI failed:', result.error.message);
+  return { type: 'no-tags', total: totalNoTag, sites, suggestions, aiEnabled: result.aiEnabled };
 }
 
 export async function analyzeDuplicateSites(env, { limit = 30 } = {}) {
@@ -449,29 +479,26 @@ export async function analyzeDuplicateSites(env, { limit = 30 } = {}) {
       sites: (sitesInGroup || []).map((s) => ({ id: s.id, name: s.name || '', url: s.url || '', desc: s.desc || '', catelog: s.catelog || '', visibility: s.visibility || 'public', hits: Number(s.hits) || 0 })),
     });
   }
-  const settings = await getAiSettings(env, { includeSecret: true });
-  const aiEnabled = settings.enabled === 'true' && Boolean(settings.apiKey);
-  const suggestions = [];
-  if (aiEnabled && groups.length > 0) {
-    const batch = groups.slice(0, 8);
-    const lines = batch.map((g, gi) => {
-      const sl = g.sites.map((s) => `  - [ID:${s.id}] ${s.name}（${s.url}，访问${s.hits}次）`).join('\n');
-      return `组${gi + 1}（域名：${g.domainKey}）：\n${sl}`;
-    }).join('\n\n');
-    try {
-      const answer = await callOpenAiCompatible({
-        settings: { ...settings, systemPrompt: '你是书签去重助手。只输出 JSON 数组，不要解释。' },
-        message: `以下是按域名分组的书签，可能存在重复。请分析每组是否真正重复，建议保留哪个。\n只返回JSON数组，每个元素 {"group":组序号,"isDuplicate":true/false,"keepId":建议保留的ID,"reason":"原因"}。\n\n${lines}`,
-        context: '后台重复书签分析任务。',
-      });
-      const parsed = JSON.parse((answer.match(/\[[\s\S]*\]/) || [answer])[0]);
-      for (const item of Array.isArray(parsed) ? parsed : []) {
-        const gi = Number(item?.group) - 1;
-        if (gi >= 0 && gi < batch.length) suggestions.push({ domainKey: batch[gi].domainKey, isDuplicate: item?.isDuplicate !== false, keepId: Number(item?.keepId) || 0, reason: cleanText(item?.reason).slice(0, 200) || '' });
-      }
-    } catch (e) { console.warn('[ai-admin] analyzeDuplicateSites AI failed:', e.message); }
-  }
-  return { type: 'duplicates', total: groups.reduce((sum, g) => sum + g.count, 0), groupCount: groups.length, groups, suggestions, aiEnabled };
+  const batch = groups.slice(0, 8);
+  const lines = batch.map((g, gi) => {
+    const sl = g.sites.map((s) => `  - [ID:${s.id}] ${s.name}（${s.url}，访问${s.hits}次）`).join('\n');
+    return `组${gi + 1}（域名：${g.domainKey}）：\n${sl}`;
+  }).join('\n\n');
+  const result = await runAiJsonTenant({
+    env,
+    run: groups.length > 0,
+    systemPrompt: '你是书签去重助手。只输出 JSON 数组，不要解释。',
+    message: `以下是按域名分组的书签，可能存在重复。请分析每组是否真正重复，建议保留哪个。\n只返回JSON数组，每个元素 {"group":组序号,"isDuplicate":true/false,"keepId":建议保留的ID,"reason":"原因"}。\n\n${lines}`,
+    context: '后台重复书签分析任务。',
+    mapItems: (items) => items.map((item) => {
+      const gi = Number(item?.group) - 1;
+      if (gi >= 0 && gi < batch.length) return { domainKey: batch[gi].domainKey, isDuplicate: item?.isDuplicate !== false, keepId: Number(item?.keepId) || 0, reason: cleanText(item?.reason).slice(0, 200) || '' };
+      return null;
+    }).filter(Boolean),
+  });
+  const suggestions = result.status === 'ai' ? result.items : [];
+  if (result.status === 'error') console.warn('[ai-admin] analyzeDuplicateSites AI failed:', result.error.message);
+  return { type: 'duplicates', total: groups.reduce((sum, g) => sum + g.count, 0), groupCount: groups.length, groups, suggestions, aiEnabled: result.aiEnabled };
 }
 
 export async function analyzeSearchGaps(env, { limit = 20 } = {}) {
@@ -482,27 +509,24 @@ export async function analyzeSearchGaps(env, { limit = 20 } = {}) {
     ORDER BY zero_result_count DESC, total_searches DESC, last_searched_at DESC LIMIT ?
   `).bind(safeLimit).all();
   const gaps = (rows || []).map((r) => ({ keyword: r.keyword || '', totalSearches: Number(r.total_searches) || 0, zeroResultCount: Number(r.zero_result_count) || 0, lastSearchedAt: r.last_searched_at || '' }));
-  const settings = await getAiSettings(env, { includeSecret: true });
-  const aiEnabled = settings.enabled === 'true' && Boolean(settings.apiKey);
-  const suggestions = [];
-  if (aiEnabled && gaps.length > 0) {
-    const batch = gaps.slice(0, 15);
-    const lines = batch.map((g, i) => `${i + 1}. "${g.keyword}"（搜索${g.totalSearches}次，${g.zeroResultCount}次无结果）`).join('\n');
-    try {
-      const answer = await callOpenAiCompatible({
-        settings: { ...settings, systemPrompt: '你是书签补充建议助手。只输出JSON数组，不要解释。推荐真实存在的知名网站。' },
-        message: `以下是用户搜索但没有结果的关键词。请为每个关键词建议1-2个值得收录的网站。\n只返回JSON数组，每个元素 {"keyword":"关键词","suggestions":[{"name":"网站名","url":"网址","desc":"一句话描述"}]}。URL必须真实；太模糊的关键词suggestions为空数组。\n\n${lines}`,
-        context: '后台搜索缺口分析任务。',
-      });
-      const parsed = JSON.parse((answer.match(/\[[\s\S]*\]/) || [answer])[0]);
-      for (const item of Array.isArray(parsed) ? parsed : []) {
-        const kw = cleanText(item?.keyword);
-        const sug = Array.isArray(item?.suggestions) ? item.suggestions.map((s) => ({ name: cleanText(s?.name), url: cleanText(s?.url), desc: cleanText(s?.desc).slice(0, 120) })).filter((s) => s.name && s.url) : [];
-        if (kw && sug.length) suggestions.push({ keyword: kw, suggestions: sug.slice(0, 3) });
-      }
-    } catch (e) { console.warn('[ai-admin] analyzeSearchGaps AI failed:', e.message); }
-  }
-  return { type: 'search-gaps', total: gaps.length, gaps, suggestions, aiEnabled };
+  const batch = gaps.slice(0, 15);
+  const lines = batch.map((g, i) => `${i + 1}. "${g.keyword}"（搜索${g.totalSearches}次，${g.zeroResultCount}次无结果）`).join('\n');
+  const result = await runAiJsonTenant({
+    env,
+    run: gaps.length > 0,
+    systemPrompt: '你是书签补充建议助手。只输出JSON数组，不要解释。推荐真实存在的知名网站。',
+    message: `以下是用户搜索但没有结果的关键词。请为每个关键词建议1-2个值得收录的网站。\n只返回JSON数组，每个元素 {"keyword":"关键词","suggestions":[{"name":"网站名","url":"网址","desc":"一句话描述"}]}。URL必须真实；太模糊的关键词suggestions为空数组。\n\n${lines}`,
+    context: '后台搜索缺口分析任务。',
+    mapItems: (items) => items.map((item) => {
+      const kw = cleanText(item?.keyword);
+      const sug = Array.isArray(item?.suggestions) ? item.suggestions.map((s) => ({ name: cleanText(s?.name), url: cleanText(s?.url), desc: cleanText(s?.desc).slice(0, 120) })).filter((s) => s.name && s.url) : [];
+      if (kw && sug.length) return { keyword: kw, suggestions: sug.slice(0, 3) };
+      return null;
+    }).filter(Boolean),
+  });
+  const suggestions = result.status === 'ai' ? result.items : [];
+  if (result.status === 'error') console.warn('[ai-admin] analyzeSearchGaps AI failed:', result.error.message);
+  return { type: 'search-gaps', total: gaps.length, gaps, suggestions, aiEnabled: result.aiEnabled };
 }
 
 export async function analyzeCategoryErrors(env, { limit = 20 } = {}) {
@@ -516,38 +540,33 @@ export async function analyzeCategoryErrors(env, { limit = 20 } = {}) {
       orphaned.push({ id: site.id, name: site.name || '', url: site.url || '', desc: site.desc || '', catelog: site.catelog || '', issue: site.catelog ? '分类不存在' : '未设置分类' });
     }
   }
-  const settings = await getAiSettings(env, { includeSecret: true });
-  const aiEnabled = settings.enabled === 'true' && Boolean(settings.apiKey);
-  const suggestions = [];
-  if (aiEnabled && (allSites || []).length > 0 && categories.length > 1) {
-    const sample = (allSites || []).filter((s) => s.catelog && categoryNames.has(s.catelog)).slice(0, safeLimit);
-    if (sample.length > 0) {
-      const catList = categories.map((c) => c.name).join('、');
-      const siteLines = sample.map((s, i) => `${i + 1}. [ID:${s.id}] ${s.name}（当前分类：${s.catelog}；URL：${s.url}${s.desc ? '；描述：' + s.desc : ''}）`).join('\n');
-      try {
-        const answer = await callOpenAiCompatible({
-          settings: { ...settings, systemPrompt: '你是书签分类审核助手。只输出JSON数组，不要解释。' },
-          message: `请检查以下书签的分类是否合理。只返回分类可能不当的书签，如果都合理返回空数组[]。\n可用分类：${catList}\n只返回JSON数组，每个元素 {"id":书签ID,"currentCategory":"当前分类","suggestedCategory":"建议分类","reason":"原因"}。suggestedCategory必须是可用分类之一。\n\n${siteLines}`,
-          context: '后台分类错误检查任务。',
-        });
-        const parsed = JSON.parse((answer.match(/\[[\s\S]*\]/) || [answer])[0]);
-        for (const item of Array.isArray(parsed) ? parsed : []) {
-          const siteId = Number(item?.id);
-          const suggested = cleanText(item?.suggestedCategory);
-          const current = cleanText(item?.currentCategory);
-          const reason = cleanText(item?.reason).slice(0, 200);
-          if (siteId && suggested && categoryNames.has(suggested) && suggested !== current) {
-            const site = sample.find((s) => s.id === siteId);
-            suggestions.push({ siteId, siteName: site?.name || '', currentCategory: current, suggestedCategory: suggested, reason });
-          }
-        }
-      } catch (e) { console.warn('[ai-admin] analyzeCategoryErrors AI failed:', e.message); }
-    }
-  }
-  return { type: 'category-errors', totalOrphaned: orphaned.length, orphaned: orphaned.slice(0, safeLimit), suggestions, aiEnabled };
+  const sample = (allSites || []).filter((s) => s.catelog && categoryNames.has(s.catelog)).slice(0, safeLimit);
+  const catList = categories.map((c) => c.name).join('、');
+  const siteLines = sample.map((s, i) => `${i + 1}. [ID:${s.id}] ${s.name}（当前分类：${s.catelog}；URL：${s.url}${s.desc ? '；描述：' + s.desc : ''}）`).join('\n');
+  const result = await runAiJsonTenant({
+    env,
+    run: (allSites || []).length > 0 && categories.length > 1 && sample.length > 0,
+    systemPrompt: '你是书签分类审核助手。只输出JSON数组，不要解释。',
+    message: `请检查以下书签的分类是否合理。只返回分类可能不当的书签，如果都合理返回空数组[]。\n可用分类：${catList}\n只返回JSON数组，每个元素 {"id":书签ID,"currentCategory":"当前分类","suggestedCategory":"建议分类","reason":"原因"}。suggestedCategory必须是可用分类之一。\n\n${siteLines}`,
+    context: '后台分类错误检查任务。',
+    mapItems: (items) => items.map((item) => {
+      const siteId = Number(item?.id);
+      const suggested = cleanText(item?.suggestedCategory);
+      const current = cleanText(item?.currentCategory);
+      const reason = cleanText(item?.reason).slice(0, 200);
+      if (siteId && suggested && categoryNames.has(suggested) && suggested !== current) {
+        const site = sample.find((s) => s.id === siteId);
+        return { siteId, siteName: site?.name || '', currentCategory: current, suggestedCategory: suggested, reason };
+      }
+      return null;
+    }).filter(Boolean),
+  });
+  const suggestions = result.status === 'ai' ? result.items : [];
+  if (result.status === 'error') console.warn('[ai-admin] analyzeCategoryErrors AI failed:', result.error.message);
+  return { type: 'category-errors', totalOrphaned: orphaned.length, orphaned: orphaned.slice(0, safeLimit), suggestions, aiEnabled: result.aiEnabled };
 }
 
-export async function chatWithAiAssistant(env, request, { message, previousSites = [], access = null } = {}) {
+export async function chatWithAiAssistant(env, { message, previousSites = [], access = null } = {}) {
   const cleanMessage = cleanText(message);
   if (!cleanMessage) throw new Error('Message is required');
 
@@ -555,20 +574,16 @@ export async function chatWithAiAssistant(env, request, { message, previousSites
   const contextSites = await resolveContextSites(env, previousSites, access);
   let sites = [];
 
-  // 统计型问题：访问最多、最热门、排行等
+  // 统计型问题：访问最多、最热门、排行等——行格式复用 aiLocalLogic.formatPopularSiteLine
   if (intent.asksPopular) {
     try {
       const analytics = await getSiteAnalytics(env, { limit: intent.popularLimit || 5, access });
       const topSites = (analytics?.topByHits || []).slice(0, intent.popularLimit || 5);
       if (topSites.length) {
-        const lines = topSites.map((site, i) => {
-          const hits = Number(site.hits) || 0;
-          return `${i + 1}. ${site.name}（${site.catelog || '未分类'}）— 累计访问 ${hits} 次\n   ${site.url || '未提供链接'}`;
-        });
         return {
           code: 200,
           data: {
-            answer: `以下是本站访问量最高的 ${topSites.length} 个书签：\n\n${lines.join('\n\n')}`,
+            answer: `以下是本站访问量最高的 ${topSites.length} 个书签：\n\n${topSites.map(formatPopularSiteLine).join('\n\n')}`,
             mode: 'local_strict',
             sites: topSites,
             configured: false,

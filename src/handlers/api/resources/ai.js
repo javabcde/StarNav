@@ -8,7 +8,7 @@ import { analyzeCategoryErrors, analyzeDuplicateSites, analyzeNoTagSites, analyz
 export async function chat(request, env, ctx, path, method, id, url) {
   const body = await request.json();
   const access = await getAccessContext(request, env);
-  const result = await chatWithAiAssistant(env, request, {
+  const result = await chatWithAiAssistant(env, {
     message: body?.message,
     previousSites: body?.previousSites || body?.contextSites || [],
     access,

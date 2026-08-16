@@ -182,6 +182,13 @@ export function formatSiteLine(site, index = 0) {
   return `${index + 1}. ${site.name}（${site.catelog || '未分类'}）${tags}\n   ${site.url || '未提供链接'}${desc}`;
 }
 
+// 热门排行行格式：与 formatSiteLine 同族词汇（未分类 / 未提供链接），
+// 供 chat 统计分支（访问最多/最热门）复用，避免在 aiService 内联复制。
+export function formatPopularSiteLine(site, index = 0) {
+  const hits = Number(site.hits) || 0;
+  return `${index + 1}. ${site.name}（${site.catelog || '未分类'}）— 累计访问 ${hits} 次\n   ${site.url || '未提供链接'}`;
+}
+
 export function siteContainsKeyword(site, keyword) {
   const term = cleanText(keyword).toLowerCase();
   if (!term) return true;
@@ -262,6 +269,15 @@ export function parseSuggestedTags(text, limit = 8) {
   return [...new Set(items.map((item) => cleanText(typeof item === 'string' ? item : item?.name)).filter(Boolean))]
     .filter((item) => item.length <= 16)
     .slice(0, limit);
+}
+
+// 通用 JSON 数组抽取：从 AI 回答中截取第一个 [...] 片段（贪婪匹配到最后一个 ]）并解析。
+// 解析失败抛错（由调用方 catch 统一走回退语义）；解析成功但不是数组时返回 null。
+// 与 parseSuggestedTags 的差异：后者解析失败回退为分隔符切词，且兼容 {"tags":[...]} 包装。
+export function extractJsonArray(answer) {
+  const match = answer.match(/\[[\s\S]*\]/);
+  const parsed = JSON.parse(match ? match[0] : answer);
+  return Array.isArray(parsed) ? parsed : null;
 }
 
 export function suggestTagsLocally(site = {}, existingTags = [], limit = 8) {
