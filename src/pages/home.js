@@ -41,7 +41,6 @@ export async function renderHomePage(request, env, ctx) {
   const adminAuthed = access.adminAuthed;
   // 页面语义：token 不授予私人书签（browserPrivateUnlocked，与迁移前一致）
   const privateUnlocked = access.browserPrivateUnlocked;
-  const currentSpaceSlug = '';
   const [visibleSites, categoryTree] = await Promise.all([
     getAllSites(env, { access: { adminAuthed: access.adminAuthed, privateUnlocked: access.browserPrivateUnlocked } }),
     getCategoryTree(env),
@@ -126,17 +125,14 @@ export async function renderHomePage(request, env, ctx) {
     buttonText: systemSettings.announcementButtonText || '我知道了',
   };
 
-  const allLinkHref = '?';
-  const spaceSwitcher = '';
-
   const categoryLinks = renderCategoryLinks(categoryTree, {
     catalog,
     catalogExists,
-    space: currentSpaceSlug,
     expandedNames: new Set(catalogExists ? getAncestorNames(categoryTree, catalog) : []),
     privateUnlocked,
     privateBookmarksVisible,
   });
+
 
   const datalistOptions = datalistCategoryNames.map((cat) => `<option value="${escapeHTML(cat)}">`).join('');
   const sortLabel = sortMode === 'hot' ? t('hotBookmarks') : (sortMode === 'recent' ? t('recent') : '');
@@ -145,8 +141,8 @@ export async function renderHomePage(request, env, ctx) {
     ? `${PRIVATE_BOOKMARK_CATEGORY} · ${t('locked')}`
     : (catalogExists
       ? `${catalog}${tagLabel ? ` · ${tagLabel}` : ''}${sortLabel ? ` · ${sortLabel}` : ''} · ${t('sitesCount', { count: currentSites.length })}`
-      : `${tagLabel || sortLabel || '全部收藏'}${tagLabel && sortLabel ? ` · ${sortLabel}` : ''} · ${t('sitesCount', { count: currentSites.length })}`);
-  const sortLinks = renderSortLinks({ catalog, tag: tagFilter, sortMode, space: currentSpaceSlug, disabled: privateCatalogLocked, i18n });
+      : `${tagLabel || sortLabel || t('allBookmarks')}${tagLabel && sortLabel ? ` · ${sortLabel}` : ''} · ${t('sitesCount', { count: currentSites.length })}`);
+  const sortLinks = renderSortLinks({ catalog, tag: tagFilter, sortMode, disabled: privateCatalogLocked, i18n });
   // 性能优化：默认 grid 布局分页渲染（首屏只渲染前 GRID_PAGE_SIZE 个书签）；
   // grouped/dashboard 由客户端切换到该布局时以 ?layout=grouped|dashboard 片段请求按需拉取；
   // grid 后续页以 ?layout=grid&page=N 片段追加。
@@ -222,22 +218,21 @@ export async function renderHomePage(request, env, ctx) {
         </div>
       </div>
       <div class="mb-6 sticky top-0 bg-white z-10 pt-2 pb-2 -mt-2">
-        <input id="searchInput" type="text" placeholder="搜索书签..." class="w-full px-4 py-2 border border-primary-100 rounded-lg shadow-sm">
+        <input id="searchInput" type="text" placeholder="${t('searchPlaceholder')}" class="w-full px-4 py-2 border border-primary-100 rounded-lg shadow-sm">
         <div id="searchHistoryBox" class="mt-3 hidden">
           <div class="mb-1.5 flex items-center justify-between text-[11px] text-gray-500">
-            <span>最近搜索</span>
-            <button type="button" id="clearSearchHistory" class="hover:text-primary-600">清空</button>
+            <span>${t('recentSearches')}</span>
+            <button type="button" id="clearSearchHistory" class="hover:text-primary-600">${t('clear')}</button>
           </div>
           <div id="searchHistoryList" class="flex flex-wrap gap-1.5"></div>
         </div>
       </div>
-      ${spaceSwitcher}
       <div class="flex items-center justify-between mb-3">
         <h3 class="text-sm font-medium text-gray-500 uppercase">${th('categoryNav')}</h3>
         <input type="text" id="categoryFilterInput" placeholder="过滤分类..." class="w-28 px-2 py-1 text-xs border border-primary-100 rounded bg-gray-50 focus:bg-white outline-none focus:border-primary-300 transition dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200">
       </div>
       <div class="space-y-1" id="categoryList">
-        <a href="${escapeHTML(allLinkHref)}" class="category-all-button flex items-center px-3 py-2 rounded-lg w-full">${th('all')}</a>
+        <a href="?" class="category-all-button flex items-center px-3 py-2 rounded-lg w-full">${th('all')}</a>
         ${categoryLinks}
       </div>
         ${privateUnlocked && !adminAuthed ? `<form method="post" action="/" class="mt-3"><input type="hidden" name="_action" value="logout-private"><button type="submit" class="w-full rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100">${th('exitPrivate')}</button></form>` : ''}
@@ -278,7 +273,7 @@ export async function renderHomePage(request, env, ctx) {
         <div class="usage-card rounded-2xl border border-primary-100/60 bg-white/80 p-4 shadow-sm min-w-0" data-usage="favorites">
           <div class="mb-2 flex items-center justify-between">
             <h3 class="text-sm font-semibold text-gray-700">⭐ 我的收藏</h3>
-            <button type="button" data-usage-clear="favorites" class="text-[11px] text-gray-400 hover:text-primary-600">清空</button>
+            <button type="button" data-usage-clear="favorites" class="text-[11px] text-gray-400 hover:text-primary-600">${t('clear')}</button>
           </div>
           <div data-usage-list="favorites" class="flex gap-2 text-xs overflow-x-auto pb-1 scrollbar-hide snap-x"></div>
           <p class="usage-empty mt-1 text-[11px] text-gray-400">点击任意书签卡片右上角的 ⭐ 加入收藏</p>
@@ -286,7 +281,7 @@ export async function renderHomePage(request, env, ctx) {
         <div class="usage-card rounded-2xl border border-primary-100/60 bg-white/80 p-4 shadow-sm min-w-0" data-usage="recent">
           <div class="mb-2 flex items-center justify-between">
             <h3 class="text-sm font-semibold text-gray-700">🕘 最近访问</h3>
-            <button type="button" data-usage-clear="recent" class="text-[11px] text-gray-400 hover:text-primary-600">清空</button>
+            <button type="button" data-usage-clear="recent" class="text-[11px] text-gray-400 hover:text-primary-600">${t('clear')}</button>
           </div>
           <div data-usage-list="recent" class="flex gap-2 text-xs overflow-x-auto pb-1 scrollbar-hide snap-x"></div>
           <p class="usage-empty mt-1 text-[11px] text-gray-400">访问书签后这里会自动记录最近 12 条</p>
@@ -311,7 +306,7 @@ export async function renderHomePage(request, env, ctx) {
           <div id="sitesGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
             ${gridContent}
           </div>
-          ${hasMoreGrid ? `<div class="mt-6 text-center"><button type="button" id="loadMoreSites" class="rounded-full border border-primary-200 bg-white px-6 py-2.5 text-sm font-medium text-primary-700 shadow-sm hover:bg-primary-50">加载更多（剩余 ${currentSites.length - GRID_PAGE_SIZE} 个）</button></div>` : ''}
+          ${hasMoreGrid ? `<div class="mt-6 text-center"><button type="button" id="loadMoreSites" class="rounded-full border border-primary-200 bg-white px-6 py-2.5 text-sm font-medium text-primary-700 shadow-sm hover:bg-primary-50">${t('loadMoreRemaining', { count: currentSites.length - GRID_PAGE_SIZE })}</button></div>` : ''}
         </div>
         <div id="layoutGroupedPanel" class="layout-panel">
           <!-- 懒加载：切换到分组布局时按需拉取 ?layout=grouped 片段 -->
@@ -370,7 +365,7 @@ export async function renderHomePage(request, env, ctx) {
             <button type="button" class="theme-segment" data-theme-key="bg" data-theme-value="soft">${th('soft')}</button>
             <button type="button" class="theme-segment" data-theme-key="bg" data-theme-value="gradient">${th('gradient')}</button>
             <button type="button" class="theme-segment" data-theme-key="bg" data-theme-value="paper">${th('paper')}</button>
-            <button type="button" class="theme-segment" data-theme-key="bg" data-theme-value="image">图片</button>
+            <button type="button" class="theme-segment" data-theme-key="bg" data-theme-value="image">${th('image')}</button>
           </div>
           <div id="bgImageUrlBox" class="mt-1.5 hidden">
             <input id="bgImageUrlInput" type="url" placeholder="背景图片 URL" class="w-full rounded-lg border border-primary-100/60 bg-white px-2.5 py-1.5 text-[11px] outline-none focus:border-primary-300">
@@ -386,11 +381,11 @@ export async function renderHomePage(request, env, ctx) {
         <div>
           <div class="mb-1.5 font-medium">${th('homeLayout')}</div>
           <div class="grid grid-cols-3 gap-1.5" data-theme-group="layout">
-            <button type="button" class="theme-segment" data-theme-key="layout" data-theme-value="grid">卡片</button>
-            <button type="button" class="theme-segment" data-theme-key="layout" data-theme-value="list">列表</button>
-            <button type="button" class="theme-segment" data-theme-key="layout" data-theme-value="grouped">分组</button>
-            <button type="button" class="theme-segment" data-theme-key="layout" data-theme-value="masonry">瀑布</button>
-            <button type="button" class="theme-segment" data-theme-key="layout" data-theme-value="dashboard">概览</button>
+            <button type="button" class="theme-segment" data-theme-key="layout" data-theme-value="grid">${th('grid')}</button>
+            <button type="button" class="theme-segment" data-theme-key="layout" data-theme-value="list">${th('list')}</button>
+            <button type="button" class="theme-segment" data-theme-key="layout" data-theme-value="grouped">${th('grouped')}</button>
+            <button type="button" class="theme-segment" data-theme-key="layout" data-theme-value="masonry">${th('masonry')}</button>
+            <button type="button" class="theme-segment" data-theme-key="layout" data-theme-value="dashboard">${th('dashboard')}</button>
           </div>
         </div>
       </div>
@@ -398,7 +393,7 @@ export async function renderHomePage(request, env, ctx) {
     <div id="floatingAiPanel" class="floating-ai-panel hidden w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-primary-100/60 bg-white/95 shadow-2xl">
       <div class="flex items-center justify-between border-b border-primary-100/60 px-4 py-3">
         <div>
-          <h3 class="text-sm font-semibold text-gray-900">AI 书签助理</h3>
+          <h3 class="text-sm font-semibold text-gray-900">${th('aiPanelTitle')}</h3>
           <p class="text-xs text-gray-500">优先检索本站书签，再生成回复</p>
         </div>
         <div class="flex items-center gap-1">

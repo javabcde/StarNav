@@ -1,48 +1,20 @@
 import { cleanText } from '../lib/utils.js';
 import { decryptSecret, encryptSecret } from '../lib/crypto.js';
+import {
+  buildWebhookPayload,
+  eventMatches,
+  isValidWebhookUrl,
+  publicWebhook,
+  sanitizeWebhook,
+  signPayload,
+} from './webhookPolicy.js';
 
+// Webhook 传输与簿记（webhook transport & bookkeeping）：CRUD、fetch 投递、KV 结果写回。
+// 匹配 / 整形 / 签名 / 载荷构建的纯策略在 webhookPolicy.js（2026-08-16 架构评审候选 4，
+// 单一持有 + 直接单测）；本模块只做「读 KV → 投递 → 批量写回」。
+// dispatchWebhooks 簿记为一次读 + 一次写（此前每条投递全表重读重写，O(n) × N）。
 const WEBHOOKS_KEY = 'webhooks';
 
-function normalizeEvents(events = []) {
-  const values = Array.isArray(events) ? events : String(events || '').split(/[,\s]+/);
-  const normalized = values
-    .map((event) => cleanText(event).trim())
-    .filter(Boolean);
-  return Array.from(new Set(normalized));
-}
-
-function sanitizeWebhook(input = {}) {
-  return {
-    id: cleanText(input.id).slice(0, 80),
-    name: cleanText(input.name).slice(0, 80) || '未命名 WebHook',
-    url: String(input.url || '').trim(),
-    events: normalizeEvents(input.events || ['*']),
-    enabled: input.enabled !== false,
-    secret: String(input.secret || '').trim(),
-    createdAt: input.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    lastTriggeredAt: input.lastTriggeredAt || null,
-    lastStatus: input.lastStatus || null,
-    lastError: input.lastError || null,
-  };
-}
-
-function publicWebhook(webhook = {}) {
-  const { secret, ...rest } = webhook;
-  return {
-    ...rest,
-    hasSecret: Boolean(secret),
-  };
-}
-
-function isValidWebhookUrl(url) {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
 
 async function loadWebhooks(env) {
   const raw = await env.NAV_AUTH.get(WEBHOOKS_KEY);
@@ -94,7 +66,7 @@ export async function updateWebhook(env, id, input = {}) {
     ...input,
     id: current.id,
     secret: input.secret === undefined ? current.secret : input.secret,
-    createdAt: current.createdAt,
+    updatedAt: new Date().toISOString(), // 配置编辑推进「上次修改」时间（原行为）
     lastTriggeredAt: current.lastTriggeredAt,
     lastStatus: current.lastStatus,
     lastError: current.lastError,
@@ -115,26 +87,6 @@ export async function deleteWebhook(env, id) {
   return true;
 }
 
-function eventMatches(webhook, action) {
-  const events = normalizeEvents(webhook.events || ['*']);
-  if (events.includes('*')) return true;
-  if (events.includes(action)) return true;
-  const group = String(action || '').split('.')[0];
-  return events.includes(`${group}.*`);
-}
-
-async function signPayload(secret, payloadText) {
-  if (!secret) return '';
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payloadText));
-  return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
 
 async function invokeWebhook(webhook, payload) {
   const payloadText = JSON.stringify(payload);
@@ -145,8 +97,6 @@ async function invokeWebhook(webhook, payload) {
   };
   if (signature) headers['X-StarNav-Signature'] = `sha256=${signature}`;
   const response = await fetch(webhook.url, {
-    method: 'POST',
-    signal: AbortSignal.timeout(10000),
     headers,
     body: payloadText,
   });
@@ -177,30 +127,19 @@ export async function dispatchWebhooks(env, operation = {}) {
   let sent = 0;
   let failed = 0;
 
-  const payload = {
-    event: action,
-    action,
-    target: operation.target || null,
-    targetId: operation.targetId || null,
-    summary: operation.summary || null,
-    detail: operation.detail || null,
-    ip: operation.ip || null,
-    timestamp: new Date().toISOString(),
-  };
+  // event/action 用清洗后的 action（与 eventMatches 匹配同源，旧实现行为）
+  const payload = buildWebhookPayload({ ...operation, action });
+  const patches = new Map();
 
   for (const webhook of targets) {
     try {
       const result = await invokeWebhook(webhook, payload);
       if (result.ok) {
         sent += 1;
-        await updateWebhookDeliveryResult(env, webhook.id, {
-          lastTriggeredAt: payload.timestamp,
-          lastStatus: result.status,
-          lastError: null,
-        });
+        patches.set(webhook.id, { lastTriggeredAt: payload.timestamp, lastStatus: result.status, lastError: null });
       } else {
         failed += 1;
-        await updateWebhookDeliveryResult(env, webhook.id, {
+        patches.set(webhook.id, {
           lastTriggeredAt: payload.timestamp,
           lastStatus: result.status,
           lastError: result.statusText || `HTTP ${result.status}`,
@@ -208,7 +147,7 @@ export async function dispatchWebhooks(env, operation = {}) {
       }
     } catch (error) {
       failed += 1;
-      await updateWebhookDeliveryResult(env, webhook.id, {
+      patches.set(webhook.id, {
         lastTriggeredAt: payload.timestamp,
         lastStatus: null,
         lastError: error?.message || String(error),
@@ -216,6 +155,17 @@ export async function dispatchWebhooks(env, operation = {}) {
     }
   }
 
+  // 簿记批量写回：写前重读最新列表——投递期间并发的增/改/删不得被投递前快照覆盖
+  // （旧逐条实现每次投递后重读，天然保留并发变更）。命中目标的项保留其 updatedAt：
+  // 旧实现整表重存会把所有钩子的 updatedAt 刷成投递时刻（sanitize 无条件盖写），
+  // 此处改为只推进 lastTriggeredAt/lastStatus/lastError（评审修复，语义为「上次配置修改」）。
+  if (patches.size) {
+    const latest = await loadWebhooks(env);
+    await saveWebhooks(env, latest.map((webhook) => {
+      const patch = patches.get(webhook.id);
+      return patch ? { ...webhook, ...patch, updatedAt: webhook.updatedAt } : webhook;
+    }));
+  }
   return { sent, failed };
 }
 

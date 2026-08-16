@@ -1,14 +1,265 @@
 import { normalizeDuplicateUrlKey } from './siteCore.js';
+// 运行时迁移（runtime migration）：对「全新 D1（无 KV 标记）」或
 
-// 部署链路（GitHub Actions）每次 push 已执行幂等 schema.sql（wrangler d1 execute --file=schema.sql）。
-// 运行时迁移仅对「全新 D1（无 KV 标记）」或「SCHEMA_MIGRATION_VERSION 升级」补跑。
-// 用 KV 标记避免每个冷 isolate 的首个请求都执行迁移 batch：
-// 免费版 Workers isolate 空闲即回收，若不加门控，绝大多数请求都会白付这大笔 D1 开销。
-// 注意：修改下方 runMigration 的表/索引定义时，必须同步递增 SCHEMA_MIGRATION_VERSION。
-const SCHEMA_MIGRATION_VERSION = '1';
+// 「SCHEMA_MIGRATION_VERSION 升级」补跑幂等建表/加列/回填。
+// 部署链路（GitHub Actions）每次 push 已执行幂等 schema.sql（wrangler d1 execute --file=schema.sql）；
+// schema.sql 由 scripts/generate-schema.mjs 从本文件的单一源（TABLE_CREATE_SQL +
+// 各表 *_ENSUREMENTS + *_INDEX_SQL）生成（2026-08-16 架构评审候选 7）——表/列/索引定义
+// 只在此处维护，改完运行 npm run schema:generate 并提交产物；tests/migrationSchema.test.js
+// 锁定「生成物 == 提交的 schema.sql」，防止手改单边漂移。
+export const SCHEMA_MIGRATION_VERSION = '2';
 const SCHEMA_MIGRATION_KV_KEY = 'schema_migration:version';
 
-// 模块级状态：单个 Worker isolate 生命周期内只迁移一次（或确认跳过）。
+// ── 单一源：表定义（fresh schema 与运行时共用）──────────────────────
+// comment 仅供生成 schema.sql 的文档注释，不参与运行时。
+const TABLE_CREATE_SQL = [
+  {
+    table: 'spaces',
+    comment: '空间表（支持多空间/多导航页）',
+    sql: `
+      CREATE TABLE IF NOT EXISTS spaces (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        slug TEXT NOT NULL UNIQUE,
+        icon TEXT,
+        color TEXT,
+        description TEXT,
+        visibility TEXT NOT NULL DEFAULT 'public',
+        sort_order INTEGER NOT NULL DEFAULT 9999,
+        create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `,
+  },
+  {
+    table: 'sites',
+    comment: '网站配置表',
+    sql: `
+      CREATE TABLE IF NOT EXISTS sites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        url TEXT NOT NULL,
+        logo TEXT,
+        desc TEXT,
+        catelog TEXT NOT NULL,
+        category_id INTEGER,
+        space_id INTEGER,
+        visibility TEXT NOT NULL DEFAULT 'public',
+        sort_order INTEGER NOT NULL DEFAULT 9999,
+        hits INTEGER DEFAULT 0,
+        last_visit_time TIMESTAMP,
+        last_checked_at TIMESTAMP,
+        last_status_code INTEGER,
+        last_error TEXT,
+        create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(category_id) REFERENCES categories(id) ON DELETE SET NULL,
+        FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE
+      )
+    `,
+  },
+  {
+    table: 'pending_sites',
+    comment: '待审核网站表（审核中心：支持 pending/approved/rejected 状态）',
+    sql: `
+      CREATE TABLE IF NOT EXISTS pending_sites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        url TEXT NOT NULL,
+        logo TEXT,
+        desc TEXT,
+        catelog TEXT NOT NULL,
+        create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `,
+  },
+  {
+    table: 'settings',
+    comment: '设置表',
+    sql: `
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `,
+  },
+  {
+    table: 'categories',
+    comment: '分类表（兼容旧 catelog 文本字段，支持父子分类与分类改名）',
+    sql: `
+      CREATE TABLE IF NOT EXISTS categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        parent_id INTEGER,
+        space_id INTEGER,
+        sort_order INTEGER NOT NULL DEFAULT 9999,
+        icon TEXT,
+        color TEXT,
+        description TEXT,
+        create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(parent_id) REFERENCES categories(id) ON DELETE SET NULL,
+        FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE
+      )
+    `,
+  },
+  {
+    table: 'category_orders',
+    comment: '分类排序表',
+    sql: `
+      CREATE TABLE IF NOT EXISTS category_orders (
+        catelog TEXT PRIMARY KEY,
+        sort_order INTEGER NOT NULL DEFAULT 9999
+      )
+    `,
+  },
+  {
+    table: 'category_metadata',
+    comment: '分类元数据表（旧版兼容保留）',
+    sql: `
+      CREATE TABLE IF NOT EXISTS category_metadata (
+        catelog TEXT PRIMARY KEY,
+        icon TEXT,
+        description TEXT
+      )
+    `,
+  },
+  {
+    table: 'search_terms',
+    comment: '搜索关键词聚合统计表（仅记录关键词和结果数量，不保存用户身份信息）',
+    sql: `
+      CREATE TABLE IF NOT EXISTS search_terms (
+        keyword TEXT PRIMARY KEY,
+        total_searches INTEGER NOT NULL DEFAULT 0,
+        total_results INTEGER NOT NULL DEFAULT 0,
+        last_result_count INTEGER NOT NULL DEFAULT 0,
+        zero_result_count INTEGER NOT NULL DEFAULT 0,
+        first_searched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_searched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `,
+  },
+  {
+    table: 'tags',
+    comment: '标签表',
+    sql: `
+      CREATE TABLE IF NOT EXISTS tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `,
+  },
+  {
+    table: 'site_tags',
+    comment: '站点标签关联表',
+    sql: `
+      CREATE TABLE IF NOT EXISTS site_tags (
+        site_id INTEGER NOT NULL,
+        tag_id INTEGER NOT NULL,
+        PRIMARY KEY(site_id, tag_id),
+        FOREIGN KEY(site_id) REFERENCES sites(id) ON DELETE CASCADE,
+        FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
+      )
+    `,
+  },
+  {
+    table: 'operation_logs',
+    comment: '操作日志表（记录管理员关键写操作，用于追踪和审计）',
+    sql: `
+      CREATE TABLE IF NOT EXISTS operation_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action TEXT NOT NULL,
+        target TEXT,
+        target_id TEXT,
+        summary TEXT,
+        detail TEXT,
+        ip TEXT,
+        create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `,
+  },
+];
+
+// 不依赖旧表新增字段的索引，随建表 batch 一并创建（仅创建于不存在时）。
+const PRE_INDEX_SQL = [
+  'CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name)',
+  'CREATE INDEX IF NOT EXISTS idx_site_tags_tag ON site_tags(tag_id, site_id)',
+  'CREATE INDEX IF NOT EXISTS idx_search_terms_total ON search_terms(total_searches DESC, last_searched_at DESC)',
+  'CREATE INDEX IF NOT EXISTS idx_search_terms_zero ON search_terms(zero_result_count DESC, last_searched_at DESC)',
+  'CREATE INDEX IF NOT EXISTS idx_operation_logs_create_time ON operation_logs(create_time DESC, id DESC)',
+  'CREATE INDEX IF NOT EXISTS idx_operation_logs_action ON operation_logs(action, create_time DESC)',
+];
+
+// ── 单一源：ensureColumn 清单（按表分组，顺序即运行时执行顺序）──────
+// 生成器把未出现在 CREATE TABLE 的列并入 fresh schema（SQLite 列顺序不影响语义）。
+const SPACES_ENSUREMENTS = [
+  { column: 'name', definition: 'TEXT' },
+  { column: 'slug', definition: 'TEXT' },
+  { column: 'icon', definition: 'TEXT' },
+  { column: 'color', definition: 'TEXT' },
+  { column: 'description', definition: 'TEXT' },
+  { column: 'visibility', definition: "TEXT NOT NULL DEFAULT 'public'" },
+  { column: 'sort_order', definition: 'INTEGER NOT NULL DEFAULT 9999' },
+  { column: 'create_time', definition: 'TIMESTAMP' },
+  { column: 'update_time', definition: 'TIMESTAMP' },
+];
+
+const SITES_ENSUREMENTS = [
+  { column: 'category_id', definition: 'INTEGER' },
+  { column: 'space_id', definition: 'INTEGER' },
+  { column: 'visibility', definition: "TEXT NOT NULL DEFAULT 'public'" },
+  { column: 'sort_order', definition: 'INTEGER NOT NULL DEFAULT 9999' },
+  { column: 'hits', definition: 'INTEGER DEFAULT 0' },
+  { column: 'last_visit_time', definition: 'TIMESTAMP' },
+  { column: 'last_checked_at', definition: 'TIMESTAMP' },
+  { column: 'last_status_code', definition: 'INTEGER' },
+  { column: 'last_error', definition: 'TEXT' },
+  { column: 'create_time', definition: 'TIMESTAMP' },
+  { column: 'update_time', definition: 'TIMESTAMP' },
+  { column: 'url_key', definition: 'TEXT' },
+  // 同步书签列（候选 7 补齐：此前仅 schema.sql 有，运行时建库漏列，idx 依赖其存在）
+  { column: 'sync_source', definition: "TEXT NOT NULL DEFAULT 'manual'" },
+  { column: 'browser_bookmark_id', definition: 'TEXT' },
+];
+
+const PENDING_ENSUREMENTS = [
+  { column: 'tags', definition: 'TEXT' },
+  { column: 'reason', definition: 'TEXT' },
+  { column: 'status', definition: "TEXT NOT NULL DEFAULT 'pending'" },
+  { column: 'reject_reason', definition: 'TEXT' },
+  { column: 'reviewed_at', definition: 'TIMESTAMP' },
+];
+
+const CATEGORIES_ENSUREMENTS = [
+  { column: 'parent_id', definition: 'INTEGER' },
+  { column: 'space_id', definition: 'INTEGER' },
+  { column: 'sort_order', definition: 'INTEGER NOT NULL DEFAULT 9999' },
+  { column: 'icon', definition: 'TEXT' },
+  { column: 'color', definition: 'TEXT' },
+  { column: 'description', definition: 'TEXT' },
+  { column: 'create_time', definition: 'TIMESTAMP' },
+  { column: 'update_time', definition: 'TIMESTAMP' },
+];
+
+// 依赖 ensureColumn 新增字段的索引，必须在对应 ensure 之后创建（顺序敏感）。
+const SITES_INDEX_SQL = [
+  'CREATE INDEX IF NOT EXISTS idx_sites_catelog ON sites(catelog)',
+  'CREATE INDEX IF NOT EXISTS idx_sites_sort ON sites(catelog, sort_order, create_time)',
+  'CREATE INDEX IF NOT EXISTS idx_sites_category ON sites(category_id)',
+  'CREATE INDEX IF NOT EXISTS idx_sites_space ON sites(space_id)',
+  'CREATE INDEX IF NOT EXISTS idx_sites_url_key ON sites(url_key)',
+  'CREATE INDEX IF NOT EXISTS idx_sites_sync_source ON sites(sync_source, browser_bookmark_id)',
+];
+
+const CATEGORIES_INDEX_SQL = [
+  'CREATE INDEX IF NOT EXISTS idx_categories_parent ON categories(parent_id)',
+  'CREATE INDEX IF NOT EXISTS idx_categories_space ON categories(space_id)',
+  'CREATE INDEX IF NOT EXISTS idx_categories_sort ON categories(sort_order, name)',
+];
+
+// ── 模块级状态：单个 Worker isolate 生命周期内只迁移一次（或确认跳过）。
 let migrationState = 'pending'; // pending | running | done
 let migrationPromise = null;
 
@@ -42,200 +293,89 @@ export async function ensureSchema(env) {
   return migrationPromise;
 }
 
+/**
+ * 生成 fresh schema SQL（唯一事实源）：CREATE TABLE（并入本表 *_ENSUREMENTS 中
+ * CREATE 未包含的列）+ 全部索引。供 scripts/generate-schema.mjs 产出 schema.sql，
+ * 也被 tests/migrationSchema.test.js 用作「生成物 == 提交文件」的回归锁。
+ * 纯函数，不触 env/D1。
+ */
+export function getFreshSchemaSql() {
+  const ensureByTable = new Map([
+    ['spaces', SPACES_ENSUREMENTS],
+    ['sites', SITES_ENSUREMENTS],
+    ['pending_sites', PENDING_ENSUREMENTS],
+    ['categories', CATEGORIES_ENSUREMENTS],
+  ]);
+
+  const tableBlocks = TABLE_CREATE_SQL.map(({ table, comment, sql }) => {
+    const bodyLines = sql
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(1, -1); // 去掉 CREATE TABLE ... ( 与收尾 )
+    const fkLines = bodyLines.filter((line) => line.startsWith('FOREIGN KEY'));
+    const columnLines = bodyLines.filter((line) => !line.startsWith('FOREIGN KEY'));
+    const existingNames = new Set(columnLines.map((line) => line.split(/\s+/)[0]));
+
+    // 只并入本表自己的 ensureColumn 清单（跨表同名列不得串表）
+    const mergedColumns = [...columnLines];
+    for (const { column, definition } of ensureByTable.get(table) || []) {
+      if (!existingNames.has(column)) {
+        mergedColumns.push(`${column} ${definition}`);
+        existingNames.add(column);
+      }
+    }
+
+    const columnBlocks = [...mergedColumns, ...fkLines];
+    const lines = [
+      `-- ${comment}`,
+      `CREATE TABLE IF NOT EXISTS ${table} (`,
+      ...columnBlocks.map((line, index) => `  ${line.replace(/,\s*$/, '')}${index === columnBlocks.length - 1 ? '' : ','}`),
+      ');',
+    ];
+    return lines.join('\n');
+  });
+
+  const indexBlocks = [...PRE_INDEX_SQL, ...SITES_INDEX_SQL, ...CATEGORIES_INDEX_SQL]
+    .map((sql) => `${sql};`);
+
+  return [...tableBlocks, ...indexBlocks].join('\n\n');
+}
+
 async function runMigration(env) {
   console.log('[migration] ensuring all tables and indexes');
 
   await env.NAV_DB.batch([
-    // 主表：spaces
-    env.NAV_DB.prepare(`
-      CREATE TABLE IF NOT EXISTS spaces (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
-        slug TEXT NOT NULL UNIQUE,
-        icon TEXT,
-        color TEXT,
-        description TEXT,
-        visibility TEXT NOT NULL DEFAULT 'public',
-        sort_order INTEGER NOT NULL DEFAULT 9999,
-        create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `),
-    // 主表：sites
-    env.NAV_DB.prepare(`
-      CREATE TABLE IF NOT EXISTS sites (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        url TEXT NOT NULL,
-        logo TEXT,
-        desc TEXT,
-        catelog TEXT NOT NULL,
-        category_id INTEGER,
-        space_id INTEGER,
-        visibility TEXT NOT NULL DEFAULT 'public',
-        sort_order INTEGER NOT NULL DEFAULT 9999,
-        hits INTEGER DEFAULT 0,
-        last_visit_time TIMESTAMP,
-        last_checked_at TIMESTAMP,
-        last_status_code INTEGER,
-        last_error TEXT,
-        create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(category_id) REFERENCES categories(id) ON DELETE SET NULL,
-        FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE
-      )
-    `),
-    // 主表：pending_sites
-    env.NAV_DB.prepare(`
-      CREATE TABLE IF NOT EXISTS pending_sites (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        url TEXT NOT NULL,
-        logo TEXT,
-        desc TEXT,
-        catelog TEXT NOT NULL,
-        create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `),
-    // 主表：settings
-    env.NAV_DB.prepare(`
-      CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY,
-        value TEXT,
-        update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `),
-    // 主表：categories
-    env.NAV_DB.prepare(`
-      CREATE TABLE IF NOT EXISTS categories (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
-        parent_id INTEGER,
-        space_id INTEGER,
-        sort_order INTEGER NOT NULL DEFAULT 9999,
-        icon TEXT,
-        color TEXT,
-        description TEXT,
-        create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(parent_id) REFERENCES categories(id) ON DELETE SET NULL,
-        FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE
-      )
-    `),
-    // 兼容旧版：category_orders（仅用于迁移，新代码不再写入）
-    env.NAV_DB.prepare(`
-      CREATE TABLE IF NOT EXISTS category_orders (
-        catelog TEXT PRIMARY KEY,
-        sort_order INTEGER NOT NULL DEFAULT 9999
-      )
-    `),
-    // 兼容旧版：category_metadata（仅用于迁移，新代码不再写入）
-    env.NAV_DB.prepare(`
-      CREATE TABLE IF NOT EXISTS category_metadata (
-        catelog TEXT PRIMARY KEY,
-        icon TEXT,
-        description TEXT
-      )
-    `),
-    // 搜索关键词聚合统计表
-    env.NAV_DB.prepare(`
-      CREATE TABLE IF NOT EXISTS search_terms (
-        keyword TEXT PRIMARY KEY,
-        total_searches INTEGER NOT NULL DEFAULT 0,
-        total_results INTEGER NOT NULL DEFAULT 0,
-        last_result_count INTEGER NOT NULL DEFAULT 0,
-        zero_result_count INTEGER NOT NULL DEFAULT 0,
-        first_searched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_searched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `),
-    // 标签表
-    env.NAV_DB.prepare(`
-      CREATE TABLE IF NOT EXISTS tags (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
-        create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `),
-    env.NAV_DB.prepare(`
-      CREATE TABLE IF NOT EXISTS site_tags (
-        site_id INTEGER NOT NULL,
-        tag_id INTEGER NOT NULL,
-        PRIMARY KEY(site_id, tag_id),
-        FOREIGN KEY(site_id) REFERENCES sites(id) ON DELETE CASCADE,
-        FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
-      )
-    `),
-    // 仅创建不依赖旧表新增字段的索引；依赖新增字段的索引需在 ensureColumn 之后创建。
-    env.NAV_DB.prepare('CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name)'),
-    env.NAV_DB.prepare('CREATE INDEX IF NOT EXISTS idx_site_tags_tag ON site_tags(tag_id, site_id)'),
-    env.NAV_DB.prepare('CREATE INDEX IF NOT EXISTS idx_search_terms_total ON search_terms(total_searches DESC, last_searched_at DESC)'),
-    env.NAV_DB.prepare('CREATE INDEX IF NOT EXISTS idx_search_terms_zero ON search_terms(zero_result_count DESC, last_searched_at DESC)'),
-    // 操作日志表
-    env.NAV_DB.prepare(`
-      CREATE TABLE IF NOT EXISTS operation_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        action TEXT NOT NULL,
-        target TEXT,
-        target_id TEXT,
-        summary TEXT,
-        detail TEXT,
-        ip TEXT,
-        create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `),
-    env.NAV_DB.prepare('CREATE INDEX IF NOT EXISTS idx_operation_logs_create_time ON operation_logs(create_time DESC, id DESC)'),
-    env.NAV_DB.prepare('CREATE INDEX IF NOT EXISTS idx_operation_logs_action ON operation_logs(action, create_time DESC)'),
+    ...TABLE_CREATE_SQL.map(({ sql }) => env.NAV_DB.prepare(sql)),
+    ...PRE_INDEX_SQL.map((sql) => env.NAV_DB.prepare(sql)),
   ]);
 
-  await ensureColumn(env, 'spaces', 'name', 'TEXT');
-  await ensureColumn(env, 'spaces', 'slug', 'TEXT');
-  await ensureColumn(env, 'spaces', 'icon', 'TEXT');
-  await ensureColumn(env, 'spaces', 'color', 'TEXT');
-  await ensureColumn(env, 'spaces', 'description', 'TEXT');
-  await ensureColumn(env, 'spaces', 'visibility', "TEXT NOT NULL DEFAULT 'public'");
-  await ensureColumn(env, 'spaces', 'sort_order', 'INTEGER NOT NULL DEFAULT 9999');
-  await ensureColumn(env, 'spaces', 'create_time', 'TIMESTAMP');
-  await ensureColumn(env, 'spaces', 'update_time', 'TIMESTAMP');
+  for (const { column, definition } of SPACES_ENSUREMENTS) {
+    await ensureColumn(env, 'spaces', column, definition);
+  }
   await env.NAV_DB.prepare("UPDATE spaces SET visibility = 'public' WHERE visibility IS NULL OR TRIM(visibility) = ''").run();
   await env.NAV_DB.prepare("UPDATE spaces SET slug = 'default' WHERE (slug IS NULL OR TRIM(slug) = '') AND (name = '默认空间' OR name = 'Default' OR id = 1)").run();
   await env.NAV_DB.prepare("UPDATE spaces SET name = '默认空间' WHERE name IS NULL OR TRIM(name) = ''").run();
 
-  await ensureColumn(env, 'sites', 'category_id', 'INTEGER');
-  await ensureColumn(env, 'sites', 'space_id', 'INTEGER');
-  await ensureColumn(env, 'sites', 'visibility', "TEXT NOT NULL DEFAULT 'public'");
-  await ensureColumn(env, 'sites', 'sort_order', 'INTEGER NOT NULL DEFAULT 9999');
-  await ensureColumn(env, 'sites', 'hits', 'INTEGER DEFAULT 0');
-  await ensureColumn(env, 'sites', 'last_visit_time', 'TIMESTAMP');
-  await ensureColumn(env, 'sites', 'last_checked_at', 'TIMESTAMP');
-  await ensureColumn(env, 'sites', 'last_status_code', 'INTEGER');
-  await ensureColumn(env, 'sites', 'last_error', 'TEXT');
-  await ensureColumn(env, 'sites', 'create_time', 'TIMESTAMP');
-  await ensureColumn(env, 'sites', 'update_time', 'TIMESTAMP');
-  await env.NAV_DB.prepare('CREATE INDEX IF NOT EXISTS idx_sites_catelog ON sites(catelog)').run();
-  await env.NAV_DB.prepare('CREATE INDEX IF NOT EXISTS idx_sites_sort ON sites(catelog, sort_order, create_time)').run();
-  await env.NAV_DB.prepare('CREATE INDEX IF NOT EXISTS idx_sites_category ON sites(category_id)').run();
-  await env.NAV_DB.prepare('CREATE INDEX IF NOT EXISTS idx_sites_space ON sites(space_id)').run();
-  await ensureColumn(env, 'sites', 'url_key', 'TEXT');
-  await env.NAV_DB.prepare('CREATE INDEX IF NOT EXISTS idx_sites_url_key ON sites(url_key)').run();
+  for (const { column, definition } of SITES_ENSUREMENTS) {
+    await ensureColumn(env, 'sites', column, definition);
+  }
+  for (const sql of SITES_INDEX_SQL) {
+    await env.NAV_DB.prepare(sql).run();
+  }
   await backfillSiteUrlKeys(env);
-  await ensureColumn(env, 'pending_sites', 'tags', 'TEXT');
-  await ensureColumn(env, 'pending_sites', 'reason', 'TEXT');
-  await ensureColumn(env, 'pending_sites', 'status', "TEXT NOT NULL DEFAULT 'pending'");
-  await ensureColumn(env, 'pending_sites', 'reject_reason', 'TEXT');
-  await ensureColumn(env, 'pending_sites', 'reviewed_at', 'TIMESTAMP');
+
+  for (const { column, definition } of PENDING_ENSUREMENTS) {
+    await ensureColumn(env, 'pending_sites', column, definition);
+  }
   await env.NAV_DB.prepare("UPDATE pending_sites SET status = 'pending' WHERE status IS NULL OR TRIM(status) = ''").run();
-  await ensureColumn(env, 'categories', 'parent_id', 'INTEGER');
-  await ensureColumn(env, 'categories', 'space_id', 'INTEGER');
-  await ensureColumn(env, 'categories', 'sort_order', 'INTEGER NOT NULL DEFAULT 9999');
-  await ensureColumn(env, 'categories', 'icon', 'TEXT');
-  await ensureColumn(env, 'categories', 'color', 'TEXT');
-  await ensureColumn(env, 'categories', 'description', 'TEXT');
-  await ensureColumn(env, 'categories', 'create_time', 'TIMESTAMP');
-  await ensureColumn(env, 'categories', 'update_time', 'TIMESTAMP');
-  await env.NAV_DB.prepare('CREATE INDEX IF NOT EXISTS idx_categories_parent ON categories(parent_id)').run();
-  await env.NAV_DB.prepare('CREATE INDEX IF NOT EXISTS idx_categories_space ON categories(space_id)').run();
-  await env.NAV_DB.prepare('CREATE INDEX IF NOT EXISTS idx_categories_sort ON categories(sort_order, name)').run();
+
+  for (const { column, definition } of CATEGORIES_ENSUREMENTS) {
+    await ensureColumn(env, 'categories', column, definition);
+  }
+  for (const sql of CATEGORIES_INDEX_SQL) {
+    await env.NAV_DB.prepare(sql).run();
+  }
   await env.NAV_DB.prepare('UPDATE sites SET hits = 0 WHERE hits IS NULL').run();
   await env.NAV_DB.prepare("UPDATE sites SET visibility = 'public' WHERE visibility IS NULL OR TRIM(visibility) = ''").run();
   await env.NAV_DB.prepare("UPDATE sites SET visibility = 'private' WHERE catelog = '私人书签' AND visibility = 'public'").run();
@@ -332,9 +472,10 @@ async function backfillSiteUrlKeys(env) {
 
   console.log(`[migration] backfilling url_key for ${rows.length} site(s)`);
   for (let i = 0; i < rows.length; i += 50) {
-    const chunk = rows.slice(i, i + 50);
-    await env.NAV_DB.batch(chunk.map((row) =>
-      env.NAV_DB.prepare('UPDATE sites SET url_key = ? WHERE id = ?').bind(row.key, row.id)
-    ));
+    const batchRows = rows.slice(i, i + 50);
+    await env.NAV_DB.batch(
+      batchRows.map((row) => env.NAV_DB.prepare('UPDATE sites SET url_key = ? WHERE id = ?').bind(row.key, row.id)),
+    );
   }
 }
+

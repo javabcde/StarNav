@@ -81,7 +81,7 @@ export function getCategoryCssColor(value) {
 }
 
 export function renderCategoryLinks(nodes, options, level = 0) {
-  const { catalog, catalogExists, space, expandedNames, privateUnlocked, privateBookmarksVisible } = options;
+  const { catalog, catalogExists, expandedNames, privateUnlocked, privateBookmarksVisible } = options;
   return nodes.filter((cat) => privateBookmarksVisible || privateUnlocked || !isPrivateBookmarkCategory(cat.name)).map((cat) => {
     const safeName = escapeHTML(cat.name);
     const active = false; // This will be handled by JS
@@ -106,7 +106,6 @@ export function renderCategoryLinks(nodes, options, level = 0) {
       ? `<div id="${childId}" class="${expanded ? '' : 'hidden'} mt-1 space-y-1">${renderCategoryLinks(cat.children, options, level + 1)}</div>`
       : '';
     const link = new URLSearchParams({ catalog: cat.name });
-    if (space) link.set('space', space);
 
     return `<div class="category-tree-node" data-level="${level}">
       <div class="flex items-center gap-1">

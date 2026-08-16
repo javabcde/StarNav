@@ -6,11 +6,13 @@
 //   systemHealthService 的 count 查询统一改调，不再各自手写 SQL 副本；
 // - 投稿审核簇（pending_sites 表）在 submissionService.js，导入/导出簇在 transferService.js，
 //   本文件保留同名 re-export 垫片（存量测试 import 面不变，同 ADR-0003 模式）；
-// - 搜索/评分与 analytics 簇留在本文件：搜索/评分与 CRUD 共享表与过滤解析，接缝不成立——
-//   searchSites/getSiteAnalytics 与列表查询共享私有查询基建（SITE_SELECT_COLUMNS、applyVisibilityWhere、
-//   toSafeLikePattern、attachTagsToSites 及同构的 legacy 降级查询形态），整簇搬迁必须导出这套私有基建
-//   （形成双向深循环的假拆分）或复制共享逻辑，均违反纯搬迁约束；recordSearchTerm 与 searchSites 同属
-//   /api/search 端点链路、getSearchAnalytics 与 getSiteAnalytics 同属 analytics 读簇，随簇整体保留。
+// - 搜索/评分与 analytics 簇：查询编排（searchSites/getSiteAnalytics 与列表查询共享
+//   SITE_SELECT_COLUMNS、applyVisibilityWhere、toSafeLikePattern、attachTagsToSites 等私有查询基建，
+//   整簇搬迁需导出基建或复制共享逻辑，均违反纯搬迁约束——编排随簇保留）与 recordSearchTerm 同属
+//   /api/search 端点链路、getSearchAnalytics 与 getSiteAnalytics 同属 analytics 读簇，随簇整体保留；
+//   纯评分管线（parseSearchQuery / matchesAdvancedFilters / scoreSite + CJK 首字母/ngram 推断）
+//   已迁出为零 D1 叶模块 services/searchScoring.js（2026-08-16 架构评审候选 1，同 submissionAnalytics
+//   先例，行为矩阵直测）；本文件只消费其导出，不再持有评分内部实现。
 import { cleanText, normalizeIdList, normalizeSortOrder } from '../lib/utils.js';
 import { PRIVATE_BOOKMARK_CATEGORY } from './privateBookmarkService.js';
 import { resolveSpaceId } from './spaceService.js';
@@ -18,7 +20,8 @@ import { getDescendantCategoryNames, upsertCategoryByName } from './categoryServ
 import { attachTagsToSites, normalizeTags, setSiteTags } from './tagService.js';
 import { faviconFailedKey } from './iconService.js';
 import { logOperation, OPERATION_LOG_ACTIONS } from './operationLogService.js';
-import { deadSiteSql, isDeadSite, isOkSite, okSiteSql, unknownSiteSql } from './healthQuery.js';
+import { deadSiteSql, okSiteSql, unknownSiteSql } from './healthQuery.js';
+import { matchesAdvancedFilters, parseSearchQuery, scoreSite } from './searchScoring.js';
 import { canAccessSite, canListSite, isPrivateSite, normalizeVisibility, SITE_VISIBILITIES } from './accessService.js';
 // 可见性规则已迁入 accessService（docs/adr/0003）；re-export 保持存量测试 import 面。
 export { canAccessSite, canListSite, isPrivateSite, normalizeVisibility, SITE_VISIBILITIES, visibilityWhere } from './accessService.js';
@@ -87,223 +90,6 @@ function toSafeLikePattern(value, maxLength = 48) {
   if (!text) return '';
   return `%${text.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
 }
-
-const CJK_INITIALS = {
-  星: 'x', 空: 'k', 图: 't', 床: 'c', 云: 'y', 盘: 'p', 网: 'w', 资: 'z', 源: 'y', 工: 'g', 具: 'j',
-  开: 'k', 发: 'f', 设: 's', 计: 'j', 素: 's', 材: 'c', 代: 'd', 码: 'm', 托: 't', 管: 'g',
-  服: 'f', 务: 'w', 器: 'q', 运: 'y', 维: 'w', 博: 'b', 客: 'k', 搜: 's', 索: 's', 导: 'd',
-  航: 'h', 书: 's', 签: 'q', 分: 'f', 类: 'l', 标: 'b', 私: 's', 人: 'r', 常: 'c',
-  用: 'y', 站: 'z', 点: 'd', 链: 'l', 接: 'j', 文: 'w', 档: 'd', 影: 'y', 音: 'y', 视: 's',
-  频: 'p', 下: 'x', 载: 'z', 上: 's', 传: 'c', 压: 'y', 缩: 's', 转: 'z', 换: 'h', 编: 'b',
-  辑: 'j', 生: 's', 成: 'c', 智: 'z', 能: 'n', 大: 'd', 模: 'm', 型: 'x'
-};
-
-const PINYIN_INITIAL_BOUNDARIES = [
-  ['a', '阿'], ['b', '八'], ['c', '嚓'], ['d', '咑'], ['e', '妸'], ['f', '发'],
-  ['g', '旮'], ['h', '哈'], ['j', '击'], ['k', '喀'], ['l', '垃'], ['m', '妈'],
-  ['n', '拿'], ['o', '哦'], ['p', '啪'], ['q', '期'], ['r', '然'], ['s', '撒'],
-  ['t', '塌'], ['w', '挖'], ['x', '昔'], ['y', '压'], ['z', '匝'],
-];
-
-function normalizeSearchText(value) {
-  return cleanText(value).toLowerCase();
-}
-
-function getHostParts(url) {
-  const raw = cleanText(url);
-  if (!raw) return [];
-  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-  try {
-    const parsed = new URL(withProtocol);
-    return [
-      parsed.hostname.toLowerCase(),
-      parsed.hostname.replace(/^www\./i, '').toLowerCase(),
-      parsed.pathname.toLowerCase(),
-    ].filter(Boolean);
-  } catch {
-    return [raw.toLowerCase()];
-  }
-}
-
-function inferPinyinInitial(char) {
-  if (!/[\u4e00-\u9fff]/.test(char)) return '';
-  if (CJK_INITIALS[char]) return CJK_INITIALS[char];
-
-  let initial = '';
-  for (const [letter, boundary] of PINYIN_INITIAL_BOUNDARIES) {
-    if (char.localeCompare(boundary, 'zh-Hans-CN') >= 0) {
-      initial = letter;
-    } else {
-      break;
-    }
-  }
-  return initial;
-}
-
-function getCjkInitials(value) {
-  return Array.from(cleanText(value)).map((char) => inferPinyinInitial(char)).join('');
-}
-
-function getCjkNgrams(value) {
-  const chars = Array.from(cleanText(value).replace(/\s+/g, '')).filter((char) => /[\u4e00-\u9fff]/.test(char));
-  const grams = new Set();
-  for (const size of [2, 3, 4]) {
-    for (let i = 0; i + size <= chars.length; i += 1) {
-      grams.add(chars.slice(i, i + size).join(''));
-    }
-  }
-  return [...grams];
-}
-
-function parseSearchQuery(keyword) {
-  let text = cleanText(keyword);
-  const filters = { tags: [], categories: [], urls: [], visibility: '', health: '' };
-  text = text.replace(/\b(tag|cat|category|url|is):(?:"([^"]+)"|'([^']+)'|(\S+))/gi, (match, key, quoted, singleQuoted, plain) => {
-    const value = cleanText(quoted || singleQuoted || plain);
-    const normalizedKey = key.toLowerCase();
-    if (!value) return ' ';
-    if (normalizedKey === 'tag') filters.tags.push(value);
-    else if (normalizedKey === 'cat' || normalizedKey === 'category') filters.categories.push(value);
-    else if (normalizedKey === 'url') filters.urls.push(value);
-    else if (normalizedKey === 'is') {
-      const state = value.toLowerCase();
-      if (['private', 'public', 'unlisted', 'admin_only'].includes(state)) filters.visibility = state;
-      if (['dead', 'bad', 'error'].includes(state)) filters.health = 'dead';
-      if (['ok', 'alive'].includes(state)) filters.health = 'ok';
-    }
-    return ' ';
-  });
-
-  const terms = new Set();
-  const phrase = cleanText(text);
-  if (phrase) terms.add(phrase);
-  phrase.split(/\s+/).map(cleanText).filter(Boolean).forEach((term) => terms.add(term));
-  getCjkNgrams(phrase).forEach((term) => terms.add(term));
-
-  return { raw: cleanText(keyword), terms: [...terms].slice(0, 24), filters };
-}
-
-function matchesAdvancedFilters(site, filters) {
-  const tags = Array.isArray(site.tags) ? site.tags.map(normalizeSearchText) : [];
-  const category = normalizeSearchText(site.catelog);
-  const url = normalizeSearchText(site.url);
-  const hosts = getHostParts(site.url);
-  const visibility = normalizeVisibility(site.visibility, site.catelog);
-  const isDead = isDeadSite(site);
-
-  if (filters.visibility && visibility !== filters.visibility) return false;
-  if (filters.health === 'dead' && !isDead) return false;
-  if (filters.health === 'ok' && !isOkSite(site)) return false;
-  if (filters.tags.length && !filters.tags.every((tag) => tags.some((item) => item.includes(normalizeSearchText(tag))))) return false;
-  if (filters.categories.length && !filters.categories.every((cat) => category.includes(normalizeSearchText(cat)))) return false;
-  if (filters.urls.length && !filters.urls.every((part) => {
-    const normalized = normalizeSearchText(part);
-    return url.includes(normalized) || hosts.some((host) => host.includes(normalized));
-  })) return false;
-
-  return true;
-}
-
-function scoreSite(site, terms) {
-  const name = normalizeSearchText(site.name);
-  const url = normalizeSearchText(site.url);
-  const desc = normalizeSearchText(site.desc);
-  const category = normalizeSearchText(site.catelog);
-  const tags = Array.isArray(site.tags) ? site.tags.map(normalizeSearchText) : [];
-  const tagInitials = Array.isArray(site.tags) ? site.tags.map(getCjkInitials).filter(Boolean) : [];
-  const hosts = getHostParts(site.url);
-  const nameInitials = getCjkInitials(site.name);
-  const categoryInitials = getCjkInitials(site.catelog);
-
-  let score = 0;
-  const matchedFields = new Set();
-  const matchReasons = [];
-
-  for (const rawTerm of terms) {
-    const term = normalizeSearchText(rawTerm);
-    if (!term) continue;
-
-    if (name === term) {
-      score += 1000;
-      matchedFields.add('name');
-      matchReasons.push(`名称完全匹配：${rawTerm}`);
-    } else if (name.includes(term)) {
-      score += 520;
-      matchedFields.add('name');
-      matchReasons.push(`名称包含：${rawTerm}`);
-    }
-
-    if (nameInitials && nameInitials.includes(term)) {
-      score += 420;
-      matchedFields.add('name_initials');
-      matchReasons.push(`名称首字母匹配：${rawTerm}`);
-    }
-
-    if (tags.some((tag) => tag === term)) {
-      score += 360;
-      matchedFields.add('tags');
-      matchReasons.push(`标签完全匹配：${rawTerm}`);
-    } else if (tags.some((tag) => tag.includes(term))) {
-      score += 280;
-      matchedFields.add('tags');
-      matchReasons.push(`标签包含：${rawTerm}`);
-    }
-
-    if (tagInitials.some((initials) => initials.includes(term))) {
-      score += 240;
-      matchedFields.add('tag_initials');
-      matchReasons.push(`标签首字母匹配：${rawTerm}`);
-    }
-
-    if (category === term) {
-      score += 300;
-      matchedFields.add('category');
-      matchReasons.push(`分类完全匹配：${rawTerm}`);
-    } else if (category.includes(term)) {
-      score += 230;
-      matchedFields.add('category');
-      matchReasons.push(`分类包含：${rawTerm}`);
-    }
-
-    if (categoryInitials && categoryInitials.includes(term)) {
-      score += 180;
-      matchedFields.add('category_initials');
-      matchReasons.push(`分类首字母匹配：${rawTerm}`);
-    }
-
-    if (hosts.some((host) => host.includes(term))) {
-      score += 220;
-      matchedFields.add('url');
-      matchReasons.push(`域名匹配：${rawTerm}`);
-    } else if (url.includes(term)) {
-      score += 160;
-      matchedFields.add('url');
-      matchReasons.push(`URL 包含：${rawTerm}`);
-    }
-
-    if (desc.includes(term)) {
-      score += 120;
-      matchedFields.add('desc');
-      matchReasons.push(`描述包含：${rawTerm}`);
-    }
-  }
-
-  const hits = Math.min(Number(site.hits) || 0, 1000);
-  score += Math.min(80, Math.log10(hits + 1) * 24);
-
-  const updateTime = Date.parse(site.update_time || site.create_time || '');
-  if (Number.isFinite(updateTime)) {
-    const ageDays = Math.max(0, (Date.now() - updateTime) / 86400000);
-    score += Math.max(0, 40 - Math.min(40, ageDays / 14));
-  }
-
-  return {
-    score: Math.round(score * 100) / 100,
-    matchedFields: [...matchedFields],
-    matchReasons: [...new Set(matchReasons)].slice(0, 8),
-  };
-}
-
 
 function hasExplicitSortOrder(config) {
   return config?.sort_order !== undefined && config?.sort_order !== null && config?.sort_order !== '';

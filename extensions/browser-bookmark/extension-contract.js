@@ -120,6 +120,14 @@
       logo: String(logo || '').trim(),
     };
   }
+  /**
+   * 右键菜单标题单一源：background.js 四处（onInstalled / onChanged / onStartup /
+   * 消息同步）此前各自拼 `收藏当前网页到 ${siteName || 'StarNav'}`，默认值漂移风险。
+   */
+  function collectMenuTitle(siteName = '') {
+    return `收藏当前网页到 ${siteName || 'StarNav'}`;
+  }
+
 
   const Contract = {
     BROWSE_CACHE_KEY,
@@ -135,6 +143,7 @@
     escapeHTML,
     apiFetch,
     buildCollectPayload,
+    collectMenuTitle,
   };
 
   if (typeof module !== 'undefined' && module.exports) {

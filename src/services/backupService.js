@@ -1,153 +1,18 @@
-import { cleanText } from '../lib/utils.js';
-import { getSetting, setSetting } from './settingsService.js';
 import { exportConfig, importSites } from './transferService.js';
-import { decryptSecret, encryptSecret } from '../lib/crypto.js';
+import { uploadBackupToWebDav } from '../lib/webdav.js';
 import { logOperation, OPERATION_LOG_ACTIONS } from './operationLogService.js';
 
+// 备份生命周期（backup lifecycle）：KV 快照 + 元数据 + 保留策略 + 恢复。
+// WebDAV 传输与设置 CRUD 已迁出为 lib/webdav.js 适配器（2026-08-16 架构评审候选 2），
+// 本模块与传输只在 createBackup 一处交汇（失败容错不阻断本地备份）；
+// boolString/limitText 等共享原语经 lib/utils 单一源消费（收编战役豁免区收口）。
 const BACKUP_PREFIX = 'backup:';
 const META_PREFIX = 'backup-meta:';
 const MAX_BACKUPS = 30;
-const WEBDAV_PREFIX = 'backup.webdav.';
 
 function buildBackupId(reason = 'manual', date = new Date()) {
   const iso = date.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
   return `${iso}_${reason}`;
-}
-
-function boolString(value, fallback = 'false') {
-  if (value === undefined || value === null || value === '') return fallback;
-  return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase()) ? 'true' : 'false';
-}
-
-function limitText(value, max = 500) {
-  return cleanText(value).slice(0, max);
-}
-
-function encodePathSegment(segment) {
-  return encodeURIComponent(segment).replace(/%2F/gi, '/');
-}
-
-function joinWebDavUrl(baseUrl, remotePath = '', fileName = '') {
-  const base = limitText(baseUrl, 800).replace(/\/+$/g, '');
-  const path = limitText(remotePath, 300)
-    .replace(/^\/+|\/+$/g, '')
-    .split('/')
-    .map((part) => encodePathSegment(part.trim()))
-    .filter(Boolean)
-    .join('/');
-  const name = encodePathSegment(fileName);
-  return [base, path, name].filter(Boolean).join('/');
-}
-
-function webDavAuthHeader(settings) {
-  if (!settings.username && !settings.password) return {};
-  return { Authorization: `Basic ${btoa(`${settings.username}:${settings.password}`)}` };
-}
-
-export async function getWebDavBackupSettings(env, { includePassword = false } = {}) {
-  const settings = {
-    enabled: boolString(await getSetting(env, `${WEBDAV_PREFIX}enabled`, 'false')),
-    url: limitText(await getSetting(env, `${WEBDAV_PREFIX}url`, ''), 800),
-    username: limitText(await getSetting(env, `${WEBDAV_PREFIX}username`, ''), 200),
-    password: includePassword ? await decryptSecret(env, await getSetting(env, `${WEBDAV_PREFIX}password`, '')) : '',
-    hasPassword: Boolean(await getSetting(env, `${WEBDAV_PREFIX}password`, '')),
-    path: limitText(await getSetting(env, `${WEBDAV_PREFIX}path`, 'StarNav'), 300) || 'StarNav',
-  };
-  return settings;
-}
-
-export async function updateWebDavBackupSettings(env, payload = {}) {
-  const current = await getWebDavBackupSettings(env, { includePassword: true });
-  const next = {
-    enabled: boolString(payload.enabled),
-    url: limitText(payload.url, 800).replace(/\/+$/g, ''),
-    username: limitText(payload.username, 200),
-    password: payload.password === undefined || payload.password === null || payload.password === '' ? current.password : String(payload.password),
-    path: limitText(payload.path, 300) || 'StarNav',
-  };
-
-  if (next.enabled === 'true' && !next.url) throw new Error('WebDAV URL is required when enabled');
-  if (next.url && !/^https?:\/\//i.test(next.url)) throw new Error('WebDAV URL must start with http:// or https://');
-
-  await setSetting(env, `${WEBDAV_PREFIX}enabled`, next.enabled);
-  await setSetting(env, `${WEBDAV_PREFIX}url`, next.url);
-  await setSetting(env, `${WEBDAV_PREFIX}username`, next.username);
-  await setSetting(env, `${WEBDAV_PREFIX}password`, await encryptSecret(env, next.password));
-  await setSetting(env, `${WEBDAV_PREFIX}path`, next.path);
-
-  return getWebDavBackupSettings(env);
-}
-
-async function ensureWebDavDirectory(settings) {
-  if (!settings.path) return;
-  const parts = settings.path.replace(/^\/+|\/+$/g, '').split('/').map((part) => part.trim()).filter(Boolean);
-  let currentPath = '';
-  for (const part of parts) {
-    currentPath = currentPath ? `${currentPath}/${part}` : part;
-    const dirUrl = joinWebDavUrl(settings.url, currentPath, '');
-    await fetch(dirUrl, {
-      method: 'MKCOL',
-      signal: AbortSignal.timeout(15000),
-      headers: webDavAuthHeader(settings),
-    }).catch(() => null);
-  }
-}
-
-export async function uploadBackupToWebDav(env, meta, payload) {
-  const settings = await getWebDavBackupSettings(env, { includePassword: true });
-  if (settings.enabled !== 'true') return { skipped: true, reason: 'WebDAV backup disabled' };
-  if (!settings.url) return { skipped: true, reason: 'WebDAV URL not configured' };
-
-  await ensureWebDavDirectory(settings);
-  const fileName = `${meta.id}.json`;
-  const targetUrl = joinWebDavUrl(settings.url, settings.path, fileName);
-  const response = await fetch(targetUrl, {
-    method: 'PUT',
-    signal: AbortSignal.timeout(30000),
-    headers: {
-      ...webDavAuthHeader(settings),
-      'Content-Type': 'application/json; charset=utf-8',
-    },
-    body: payload,
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(`WebDAV upload failed: HTTP ${response.status}${text ? ` ${text.slice(0, 120)}` : ''}`);
-  }
-
-  return { uploaded: true, url: targetUrl, fileName, status: response.status };
-}
-
-export async function testWebDavBackupSettings(env, payload = null) {
-  const settings = payload ? {
-    ...(await getWebDavBackupSettings(env, { includePassword: true })),
-    enabled: boolString(payload.enabled, 'true'),
-    url: limitText(payload.url, 800).replace(/\/+$/g, ''),
-    username: limitText(payload.username, 200),
-    password: payload.password ? String(payload.password) : (await getWebDavBackupSettings(env, { includePassword: true })).password,
-    path: limitText(payload.path, 300) || 'StarNav',
-  } : await getWebDavBackupSettings(env, { includePassword: true });
-
-  if (!settings.url) throw new Error('WebDAV URL is required');
-  if (!/^https?:\/\//i.test(settings.url)) throw new Error('WebDAV URL must start with http:// or https://');
-
-  await ensureWebDavDirectory(settings);
-  const fileName = `.starnav-test-${Date.now()}.txt`;
-  const targetUrl = joinWebDavUrl(settings.url, settings.path, fileName);
-  const put = await fetch(targetUrl, {
-    method: 'PUT',
-    signal: AbortSignal.timeout(15000),
-    headers: {
-      ...webDavAuthHeader(settings),
-      'Content-Type': 'text/plain; charset=utf-8',
-    },
-    body: 'StarNav WebDAV backup test',
-  });
-  if (!put.ok) throw new Error(`WebDAV test upload failed: HTTP ${put.status}`);
-
-  await fetch(targetUrl, { method: 'DELETE', signal: AbortSignal.timeout(10000), headers: webDavAuthHeader(settings) }).catch(() => null);
-  return { ok: true, status: put.status, path: settings.path, fileName };
 }
 
 export async function listBackups(env) {

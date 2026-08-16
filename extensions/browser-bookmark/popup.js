@@ -105,19 +105,8 @@ async function getActiveTab() {
 }
 
 async function loadConfig() {
-  const syncData = await chrome.storage.sync.get([
-    'baseUrl',
-    'token',
-    'defaultCategory',
-    'defaultTags',
-    'siteIcon',
-    'siteName',
-    'browseCacheMinutes',
-  ]);
-  const localData = await chrome.storage.local.get([
-    'categories',
-    'tags',
-  ]);
+  const syncData = await chrome.storage.sync.get(Contract.CONFIG_KEYS.sync);
+  const localData = await chrome.storage.local.get(Contract.CONFIG_KEYS.local);
 
   config = { ...syncData, ...localData };
   applySiteName();

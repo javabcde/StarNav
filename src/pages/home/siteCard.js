@@ -151,12 +151,11 @@ export function sortSitesForView(sites, sortMode, options = {}) {
   return sorted;
 }
 
-export function renderSortLinks({ catalog, tag, sortMode, space, disabled, i18n }) {
+export function renderSortLinks({ catalog, tag, sortMode, disabled, i18n }) {
   if (disabled) return '';
   const baseParams = new URLSearchParams();
   if (catalog) baseParams.set('catalog', catalog);
   if (tag) baseParams.set('tag', tag);
-  if (space) baseParams.set('space', space);
 
   const buildHref = (mode) => {
     const params = new URLSearchParams(baseParams);
@@ -168,8 +167,8 @@ export function renderSortLinks({ catalog, tag, sortMode, space, disabled, i18n 
   const linkClass = (active) => `px-3 py-1.5 rounded-full text-sm border transition ${active ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 border-primary-100 hover:bg-primary-50 hover:text-primary-700'}`;
 
   return `
-    <a href="${escapeHTML(buildHref(''))}" class="${linkClass(!sortMode)}">默认</a>
-    <a href="${escapeHTML(buildHref('hot'))}" class="${linkClass(sortMode === 'hot')}">热门</a>
-    <a href="${escapeHTML(buildHref('recent'))}" class="${linkClass(sortMode === 'recent')}">最近访问</a>
+    <a href="${escapeHTML(buildHref(''))}" class="${linkClass(!sortMode)}">${i18n?.t?.('default') || '默认'}</a>
+    <a href="${escapeHTML(buildHref('hot'))}" class="${linkClass(sortMode === 'hot')}">${i18n?.t?.('hot') || '热门'}</a>
+    <a href="${escapeHTML(buildHref('recent'))}" class="${linkClass(sortMode === 'recent')}">${i18n?.t?.('recent') || '最近访问'}</a>
   `;
 }

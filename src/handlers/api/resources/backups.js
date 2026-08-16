@@ -1,7 +1,8 @@
 import { errorResponse, jsonResponse } from '../../../lib/utils.js';
 import { clientIpFromRequest } from '../../../services/operationLogService.js';
 import { requireAdmin } from '../errors.js';
-import { createBackup, deleteBackup, getBackupPayload, getWebDavBackupSettings, listBackups, restoreBackup, testWebDavBackupSettings, updateWebDavBackupSettings } from '../../../services/backupService.js';
+import { createBackup, deleteBackup, getBackupPayload, listBackups, restoreBackup } from '../../../services/backupService.js';
+import { getWebDavBackupSettings, testWebDavBackupSettings, updateWebDavBackupSettings } from '../../../lib/webdav.js';
 
 /** GET /backups/webdav-settings — WebDAV 备份设置（管理员）。 */
 export async function webdavSettingsGet(request, env, ctx, path, method, id, url) {

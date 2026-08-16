@@ -115,3 +115,11 @@ _Avoid_: 投稿统计、提交分析逻辑
 **会话工厂 (Session Factory)**:
 访问凭据会话机制的单一持有点，`services/unlockSessionService.js`：`createUnlockSessionManager`（解锁会话：整站锁/私人书签两 adapter 各持实例）与 `createAdminSessionManager`（管理员会话：12h 滑动半窗节流 + 7d 绝对上限 + 请求级 WeakMap 缓存）两个参数化工厂。KV token 生命周期、滑动续期（shouldRenew）、Cookie 构建（sessionPolicy）词汇集中于此；`lib/auth.js` 收口为密码/限速域并保留会话 re-export 垫片（决策见 ADR-0009）。
 _Avoid_: 会话工具、session 管理
+
+**搜索评分 (Search Scoring)**:
+搜索相关性评分的纯逻辑域，单一持有在 `services/searchScoring.js`：查询解析（parseSearchQuery，含 tag:/cat:/url:/is: 筛选与 CJK ngram 扩展）、高级筛选谓词（matchesAdvancedFilters）、评分管线（scoreSite，权重与匹配理由词汇）。零 D1 依赖，行为矩阵在 tests/searchScoring.test.js 直接单测；`siteService.searchSites` 只消费导出（_score/_matchedFields/_matchReasons 输出形状是跨模块契约，aiService 亦消费）。评分权重/匹配理由修改只改本模块。
+_Avoid_: 搜索评分逻辑、评分函数
+
+**WebDAV 传输 (WebDAV Transport)**:
+备份域的 WebDAV 适配器，单一持有在 `lib/webdav.js`：设置 CRUD（`backup.webdav.*` 键域，密钥加密存储）+ MKCOL/PUT/DELETE 传输（URL 逐段编码、Basic 鉴权、超时）。`backupService` 备份生命周期与传输只在 createBackup 一处交汇（失败容错不阻断本地备份）。lib→services 边（settingsService 消费）沿用 auth.js→unlockSessionService 先例。
+_Avoid_: WebDAV 备份、dav 上传

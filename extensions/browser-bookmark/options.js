@@ -105,17 +105,8 @@ function renderDatalist(el, items, getValue) {
 }
 
 async function loadOptions() {
-  const syncData = await chrome.storage.sync.get([
-    'baseUrl',
-    'token',
-    'defaultCategory',
-    'defaultTags',
-    'browseCacheMinutes',
-  ]);
-  const localData = await chrome.storage.local.get([
-    'categories',
-    'tags',
-  ]);
+  const syncData = await chrome.storage.sync.get(Contract.CONFIG_KEYS.sync);
+  const localData = await chrome.storage.local.get(Contract.CONFIG_KEYS.local);
 
   els.baseUrl.value = syncData.baseUrl || '';
   els.token.value = syncData.token || '';

@@ -8,7 +8,7 @@ importScripts('extension-contract.js', 'popup-logic.js');
 
 async function warmBrowseCache() {
   try {
-    const settings = await chrome.storage.sync.get(['baseUrl', 'token', 'browseCacheMinutes']);
+    const settings = await chrome.storage.sync.get(Contract.CONFIG_KEYS.sync);
     const baseUrl = Contract.normalizeBaseUrl(settings.baseUrl);
     const token = settings.token || '';
     if (!baseUrl || !token) return;
@@ -33,8 +33,8 @@ async function warmBrowseCache() {
 // 同 id 重复 create 抛 'duplicate id' 且安装时的旧标题（StarNav）残留；
 // update 失败（菜单确实不存在）才 create。
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.sync.get(['siteName'], ({ siteName }) => {
-    const title = `收藏当前网页到 ${siteName || 'StarNav'}`;
+  chrome.storage.sync.get(Contract.CONFIG_KEYS.sync, ({ siteName }) => {
+    const title = Contract.collectMenuTitle(siteName);
     chrome.contextMenus.update("starnav-collect", { title }).catch(() => {
       chrome.contextMenus.create({
         id: "starnav-collect",
@@ -50,7 +50,7 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'sync' && changes.siteName) {
     chrome.contextMenus.update("starnav-collect", {
-      title: `收藏当前网页到 ${changes.siteName.newValue || 'StarNav'}`,
+      title: Contract.collectMenuTitle(changes.siteName.newValue),
     }).catch(() => {});
   }
 });
@@ -60,9 +60,9 @@ chrome.runtime.onStartup.addListener(() => {
   warmBrowseCache();
   // 菜单标题兜底刷新：安装时站点名可能未配置（菜单为 StarNav），
   // 之后配置了名字但 storage 值未变时 onChanged 不触发——启动时强制对齐
-  chrome.storage.sync.get(['siteName'], ({ siteName }) => {
+  chrome.storage.sync.get(Contract.CONFIG_KEYS.sync, ({ siteName }) => {
     chrome.contextMenus.update("starnav-collect", {
-      title: `收藏当前网页到 ${siteName || 'StarNav'}`,
+      title: Contract.collectMenuTitle(siteName),
     }).catch(() => {});
   });
 });
@@ -75,7 +75,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const name = tab.title || "未命名网页";
 
   // 获取配置（baseUrl/token——与 options.js/popup.js 同一套键，清单见契约模块）
-  chrome.storage.sync.get(["baseUrl", "token", "defaultCategory", "siteName"], async (settings) => {
+  chrome.storage.sync.get(Contract.CONFIG_KEYS.sync, async (settings) => {
     const baseUrl = Contract.normalizeBaseUrl(settings.baseUrl);
     const token = settings.token || "";
     const defaultCategory = settings.defaultCategory || "未分类";
@@ -142,7 +142,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // 值未变时 onChanged 不触发，菜单会停留在安装时的默认名）
   if (message.type === Contract.MESSAGE_TYPES.SYNC_SITE_NAME) {
     chrome.contextMenus.update("starnav-collect", {
-      title: `收藏当前网页到 ${message.siteName || 'StarNav'}`,
+      title: Contract.collectMenuTitle(message.siteName),
     }).catch(() => {});
     return;
   }
@@ -154,7 +154,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 async function ensureFaviconForSite(siteId) {
-  const settings = await chrome.storage.sync.get(['baseUrl', 'token']);
+  const settings = await chrome.storage.sync.get(Contract.CONFIG_KEYS.sync);
   const baseUrl = Contract.normalizeBaseUrl(settings.baseUrl);
   const token = settings.token || '';
   if (!baseUrl || !token || siteId == null) return { ok: false, reason: 'not-configured' };

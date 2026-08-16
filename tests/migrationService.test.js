@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ensureSchema, resetMigrationStateForTest } from '../src/services/migrationService.js';
+import { ensureSchema, resetMigrationStateForTest, SCHEMA_MIGRATION_VERSION } from '../src/services/migrationService.js';
 
-const MIGRATION_VERSION = '1';
+const MIGRATION_VERSION = SCHEMA_MIGRATION_VERSION;
 const KV_KEY = 'schema_migration:version';
 
 /**

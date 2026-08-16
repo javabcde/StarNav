@@ -152,3 +152,9 @@ test('buildCollectPayload：tags 数组透传、visibility 空回退 public', ()
   const emptyVis = Contract.buildCollectPayload({ name: 'D', url: 'https://d.com', visibility: '' });
   assert.equal(emptyVis.visibility, 'public');
 });
+
+test('collectMenuTitle：默认 StarNav 回退与自定义站点名（background 四处模板单一源）', () => {
+  assert.equal(Contract.collectMenuTitle(), '收藏当前网页到 StarNav');
+  assert.equal(Contract.collectMenuTitle(''), '收藏当前网页到 StarNav');
+  assert.equal(Contract.collectMenuTitle('星漫旅站'), '收藏当前网页到 星漫旅站');
+});
