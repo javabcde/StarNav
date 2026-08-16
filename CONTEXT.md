@@ -107,3 +107,7 @@ _Avoid_: parseBool、布尔解析
 **客户端纯逻辑 (Client Pure Logic)**:
 首页与后台客户端脚本的共享纯函数，单一持有在 `pages/clientLogic.js`：HTML 转义、URL 归一、关键词高亮、AI 文本归一、搜索历史合并，以及后台分析/同步/备份/Token 簇（heatLevel、formatPeak、getAnalyticsScores、normalizePickerColor、formatBytes、webdavStatusText、formatTokenScopes、同步渲染族、normalizeAiAdminItems）。经 `toString()` 生成期内联进客户端模板（首页 String.raw / 后台 adminJs），同一份源码被 node:test 直接单测；内联前提是函数体不含反引号与 `${`（clientScript.js 模块加载探针 + tests/clientLogic.test.js / tests/adminClientLogic.test.js 回归锁守护）。函数体引用的自由符号（escapeHTML 别名、weekdayNames）须在模板作用域同名存在。卡片渲染等依赖生成期契约插值（CARD_CONTRACT）的逻辑留在模板内，不抽。
 _Avoid_: 客户端工具函数、内联脚本逻辑
+
+**投稿分析 (Submission Analytics)**:
+投稿审核域的分析计算分层：per-metric D1 查询编排留在 `submissionService.getSubmissionAnalytics`，纯聚合（日序列补齐、7×24 热力、质量指标、域名聚合、趋势/异常、审核压力、审核窗口、日历分级）单一持有在 `services/submissionAnalytics.js`（`SUBMISSION_EVENTS_SQL` 双源并集同址），零 D1 依赖、node:test 直接单测。`getPendingSites` 主查询 → legacy 降级（仅 pending 态）→ 空结果的三层回退梯由 tests/getPendingSites.test.js 锁定。
+_Avoid_: 投稿统计、提交分析逻辑
