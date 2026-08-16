@@ -2,6 +2,10 @@
 
 README 一键部署入口与 wrangler.toml 占位符兼容：`deploy.workers.cloudflare.com` 按钮、警示、收尾步骤、可回写的绑定占位符。
 
+## Purpose
+
+定义 README 一键部署入口与 wrangler.toml 占位符兼容的用户可见行为：新用户从仓库到可运行实例的部署路径（按钮、警示、收尾步骤、可回写绑定占位符）。
+
 ## Requirements
 
 ### Requirement: README 一键部署按钮
