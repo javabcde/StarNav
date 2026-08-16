@@ -24,3 +24,9 @@ Status: accepted
 - token 语义不变（ADR-0002 编码进 `privateUnlocked` 判定）。
 - KV 读次数不劣于现状：整站锁状态有 KV 缓存、上下文 WeakMap 去重、无 Bearer 头不发起 token 校验。
 - 行为保持：弱 token + admin cookie → 403 的既有优先级；go.js 404 隐藏；`/submit/suggest-*` 三段鉴权舞蹈不动（属路由表重构领地）。
+
+## 后续（2026-08-16，read-access-consolidation 收口）
+
+- 读接口 `access` 参数优先于遗留布尔（`resolvedAccess = access || { adminAuthed, privateUnlocked }`）；布尔参数按兼容保留（存量测试零改动），未删除。
+- `getAllSites` / `getSiteAnalytics` 收编 `access`：SQL 可见性片段与 getSites/searchSites 完全一致；`getSiteAnalytics` 缺省（null）按匿名过滤（接口级杜绝复漏）。home 页面传页面语义对象（`browserPrivateUnlocked`），JS `canList` 过滤删除；exportConfig 与 `/api/analytics/sites` 传 admin 上下文。
+- chat 排行意图修复存量字段名 bug（`analytics.topHits` → `topByHits`）：排行分支此前恒为空、静默落回搜索；修复后访问上下文过滤对排行路径真实生效。

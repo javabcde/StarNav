@@ -562,7 +562,7 @@ export async function getSites(env, { page = 1, pageSize = 10, catalog = '', key
  * @param {object} env Cloudflare Workers 环境绑定，需包含 `NAV_DB`。
  * @returns {Promise<SiteRecord[]>}
  */
-export async function getAllSites(env, { space = '', space_id = null } = {}) {
+export async function getAllSites(env, { space = '', space_id = null, access = null } = {}) {
   const hasSpaceFilter = Boolean(space_id || cleanText(space));
   const resolvedSpaceId = hasSpaceFilter ? (space_id ? Number(space_id) : await resolveSpaceId(env, space)) : null;
   const where = [];
@@ -575,6 +575,17 @@ export async function getAllSites(env, { space = '', space_id = null } = {}) {
       where.push('s.space_id = ?');
     }
     binds.push(resolvedSpaceId);
+  }
+
+  // 可见性过滤（docs/adr/0003）：access 存在时应用与 getSites 相同的 SQL 片段；
+  // 缺省保持历史形态不过滤（仅测试路径——home/exportConfig 两个生产调用面均显式传 access）
+  if (access && !access.adminAuthed) {
+    if (access.privateUnlocked) {
+      where.push("COALESCE(s.visibility, 'public') IN ('public', 'private')");
+    } else {
+      where.push("COALESCE(s.visibility, 'public') = 'public' AND COALESCE(c.name, s.catelog) <> ?");
+      binds.push(PRIVATE_BOOKMARK_CATEGORY);
+    }
   }
 
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -599,6 +610,14 @@ export async function getAllSites(env, { space = '', space_id = null } = {}) {
   }
 
   try {
+    const fallbackWhere = [];
+    const fallbackBinds = [];
+    // 降级查询无 categories 连接：匿名/未解锁时仅挡私密分类（与 getSites fallback 同语义）
+    if (access && !access.adminAuthed && !access.privateUnlocked) {
+      fallbackWhere.push('s.catelog <> ?');
+      fallbackBinds.push(PRIVATE_BOOKMARK_CATEGORY);
+    }
+    const fallbackWhereSql = fallbackWhere.length ? `WHERE ${fallbackWhere.join(' AND ')}` : '';
     const { results } = await env.NAV_DB.prepare(`
       SELECT
         s.id,
@@ -621,8 +640,9 @@ export async function getAllSites(env, { space = '', space_id = null } = {}) {
         s.create_time,
         s.create_time AS update_time
       FROM sites s
+      ${fallbackWhereSql}
       ORDER BY datetime(s.create_time) DESC, s.id DESC
-    `).all();
+    `).bind(...fallbackBinds).all();
 
     return (results || []).map((site) => ({ ...site, tags: [] }));
   } catch (fallbackError) {
@@ -675,26 +695,41 @@ export async function recordSearchTerm(env, keyword = '', resultCount = 0) {
   return { keyword: term, resultCount: count };
 }
 
-export async function getSiteAnalytics(env, { limit = 20 } = {}) {
+export async function getSiteAnalytics(env, { limit = 20, access = null } = {}) {
   const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+
+  // 可见性过滤：与 searchSites 完全相同的 SQL 片段（API 语义 privateUnlocked 含有效 token，
+  // ADR-0002；admin 全可见；匿名仅 public + 非私密分类）。access 缺省（null）按匿名处理——
+  // 接口级杜绝复漏（曾经匿名 chat 排行泄露 private/admin_only/unlisted 站点）。
+  const accessWhere = [];
+  const accessBinds = [];
+  if (!access || !access.adminAuthed) {
+    if (access && access.privateUnlocked) {
+      accessWhere.push("COALESCE(s.visibility, 'public') IN ('public', 'private')");
+    } else {
+      accessWhere.push("COALESCE(s.visibility, 'public') = 'public' AND COALESCE(c.name, s.catelog) <> ?");
+      accessBinds.push(PRIVATE_BOOKMARK_CATEGORY);
+    }
+  }
+  const accessWhereSql = accessWhere.length ? ` AND ${accessWhere.join(' AND ')}` : '';
 
   const [topByHits, recentlyActive, categoryHeat, totals, inactive] = await Promise.all([
     env.NAV_DB.prepare(`
       SELECT ${SITE_SELECT_COLUMNS}
       FROM sites s
       LEFT JOIN categories c ON c.id = s.category_id
-      WHERE COALESCE(s.hits, 0) > 0
+      WHERE COALESCE(s.hits, 0) > 0${accessWhereSql}
       ORDER BY COALESCE(s.hits, 0) DESC, datetime(COALESCE(s.last_visit_time, s.update_time, s.create_time)) DESC
       LIMIT ?
-    `).bind(safeLimit).all(),
+    `).bind(...accessBinds, safeLimit).all(),
     env.NAV_DB.prepare(`
       SELECT ${SITE_SELECT_COLUMNS}
       FROM sites s
       LEFT JOIN categories c ON c.id = s.category_id
-      WHERE s.last_visit_time IS NOT NULL
+      WHERE s.last_visit_time IS NOT NULL${accessWhereSql}
       ORDER BY datetime(s.last_visit_time) DESC
       LIMIT ?
-    `).bind(safeLimit).all(),
+    `).bind(...accessBinds, safeLimit).all(),
     env.NAV_DB.prepare(`
       SELECT
         COALESCE(c.name, s.catelog, '未分类') AS catelog,
@@ -720,13 +755,13 @@ export async function getSiteAnalytics(env, { limit = 20 } = {}) {
       SELECT ${SITE_SELECT_COLUMNS}
       FROM sites s
       LEFT JOIN categories c ON c.id = s.category_id
-      WHERE s.last_visit_time IS NULL OR datetime(s.last_visit_time) < datetime('now', '-60 days')
+      WHERE (s.last_visit_time IS NULL OR datetime(s.last_visit_time) < datetime('now', '-60 days'))${accessWhereSql}
       ORDER BY
         CASE WHEN s.last_visit_time IS NULL THEN 0 ELSE 1 END ASC,
         datetime(COALESCE(s.last_visit_time, '1970-01-01 00:00:00')) ASC,
         s.id ASC
       LIMIT ?
-    `).bind(safeLimit).all(),
+    `).bind(...accessBinds, safeLimit).all(),
   ]);
 
   const topByHitsWithTags = await attachTagsToSites(env, topByHits.results || []);
@@ -1956,7 +1991,7 @@ export async function importSites(env, jsonData, { mode = 'merge' } = {}) {
 }
 
 export async function exportConfig(env) {
-  const sites = await getAllSites(env);
+  const sites = await getAllSites(env, { access: { adminAuthed: true } });
   const { results: categories } = await env.NAV_DB.prepare(`
     SELECT id, name, parent_id, sort_order, icon, description
     FROM categories

@@ -1036,8 +1036,8 @@ export async function chatWithAiAssistant(env, request, { message, previousSites
   // 统计型问题：访问最多、最热门、排行等
   if (intent.asksPopular) {
     try {
-      const analytics = await getSiteAnalytics(env, { limit: intent.popularLimit || 5 });
-      const topSites = (analytics?.topHits || []).slice(0, intent.popularLimit || 5);
+      const analytics = await getSiteAnalytics(env, { limit: intent.popularLimit || 5, access });
+      const topSites = (analytics?.topByHits || []).slice(0, intent.popularLimit || 5);
       if (topSites.length) {
         const lines = topSites.map((site, i) => {
           const hits = Number(site.hits) || 0;

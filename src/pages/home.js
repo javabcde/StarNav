@@ -60,9 +60,8 @@ export async function renderHomePage(request, env, ctx) {
   // 页面语义：token 不授予私人书签（browserPrivateUnlocked，与迁移前一致）
   const privateUnlocked = access.browserPrivateUnlocked;
   const currentSpaceSlug = '';
-  const [sites, categoryTree] = await Promise.all([
-
-    getAllSites(env),
+  const [visibleSites, categoryTree] = await Promise.all([
+    getAllSites(env, { access: { adminAuthed: access.adminAuthed, privateUnlocked: access.browserPrivateUnlocked } }),
     getCategoryTree(env),
   ]);
 
@@ -99,7 +98,6 @@ export async function renderHomePage(request, env, ctx) {
     return renderPrivateBookmarkPasswordPage({ catalog, error: t('passwordError'), i18n });
   }
 
-  const visibleSites = sites.filter((site) => access.canList(site));
   const flatCategories = flattenCategories(categoryTree);
   const categoryNames = flatCategories.map((item) => item.name);
   const datalistCategoryNames = categoryNames.filter((name) => !isPrivateBookmarkCategory(name));

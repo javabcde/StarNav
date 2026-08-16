@@ -595,7 +595,7 @@ export async function handleApiRequest(request, env, ctx) {
     if (path === '/analytics/sites' && method === 'GET') {
       const unauthorized = await requireAdmin(request, env);
       if (unauthorized) return unauthorized;
-      const data = await getSiteAnalytics(env, { limit: url.searchParams.get('limit') || 20 });
+      const data = await getSiteAnalytics(env, { limit: url.searchParams.get('limit') || 20, access: { adminAuthed: true } });
       return jsonResponse({ code: 200, data });
     }
 
