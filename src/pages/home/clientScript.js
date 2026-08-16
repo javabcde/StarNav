@@ -422,6 +422,9 @@ document.addEventListener('DOMContentLoaded',function(){
   function renderSearchHistory(){if(!searchHistoryBox||!searchHistoryList)return;const items=getSearchHistory();searchHistoryBox.classList.toggle('hidden',!items.length);searchHistoryList.innerHTML=items.map(function(item){return '<button type="button" class="search-history-chip rounded-full bg-primary-50 px-2.5 py-1 text-[11px] text-primary-700 hover:bg-primary-100" data-keyword="'+escapeText(item)+'">'+escapeText(item)+'</button>'}).join('')}
   // 客户端纯逻辑单一源：经 ../clientLogic.js toString() 生成期内联（2026-08-16 架构评审候选 2），
   // 同一份源码被 node:test 直接单测；禁止在模板内手写镜像副本。
+  // wrangler 部署打包（esbuild keepNames）会把具名嵌套箭头改写为 __name(...) 包裹表达式，
+  // toString() 内联的是打包后源码——垫片保证浏览器端 __name/__defProp 有定义（2026-08-16 修复）。
+  var __defProp=Object.defineProperty;var __name=(t,v)=>__defProp(t,"name",{value:v,configurable:true});
   const escapeText = ${escapeText.toString()};
   const normalizeClientUrl = ${normalizeClientUrl.toString()};
   const highlightText = ${highlightText.toString()};

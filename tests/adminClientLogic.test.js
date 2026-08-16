@@ -19,6 +19,7 @@ import {
   syncStatPill,
   webdavStatusText,
 } from '../src/pages/clientLogic.js';
+import { adminJs } from '../src/pages/admin/scripts/index.js';
 
 test('内联契约回归锁：后台簇全部导出函数源码不含反引号与 ${', () => {
   for (const fn of [formatBytes, formatPeak, formatTokenScopes, getAnalyticsScores, heatLevel, normalizeAiAdminItems, normalizePickerColor, renderSyncStats, syncFailedHtml, syncListHtml, syncStatPill, webdavStatusText]) {
@@ -112,4 +113,10 @@ test('normalizeAiAdminItems：四类分析与未知类型回退', () => {
   assert.equal(cats.items[0].suggestion, '建议改为：工具');
 
   assert.deepEqual(normalizeAiAdminItems('unknown', {}), { items: [], total: 0 });
+});
+
+test('adminJs 顶部内联 esbuild 助手垫片（wrangler keepNames 打包后 toString 产出 __name 引用）', () => {
+  const shim = 'var __defProp=Object.defineProperty;var __name=(t,v)=>__defProp(t,"name",{value:v,configurable:true});';
+  assert.ok(adminJs.includes(shim), 'adminJs 缺少 __name/__defProp 垫片——wrangler 部署后浏览器端 ReferenceError: __name is not defined');
+  assert.ok(adminJs.indexOf(shim) < adminJs.indexOf('const escapeHTML='), '垫片须位于全部 toString 内联函数之前');
 });

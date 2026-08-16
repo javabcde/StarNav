@@ -123,3 +123,10 @@ test('homeClientScript：搜索结果卡与服务端卡片共用契约（data-ca
   // themeColors 由色板生成，与迁移前字面量一致
   assert.ok(script.includes("const themeColors={blue:'#254267',green:'#265c44',purple:'#5b3b8c',rose:'#9f3758',amber:'#8a5a16'};"), 'themeColors 应由 accents.js 生成且值不变');
 });
+
+test('homeClientScript：顶部内联 esbuild 助手垫片（wrangler keepNames 打包后 toString 产出 __name 引用）', () => {
+  const script = homeClientScript({ defaultAccent: 'blue', pageBackgroundImage: false, defaultLayout: 'grid', i18n: undefined, myUsageScript: () => '', frontAdminScript: () => '', dragScript: () => '', adminAuthed: false, canDragSort: false });
+  const shim = 'var __defProp=Object.defineProperty;var __name=(t,v)=>__defProp(t,"name",{value:v,configurable:true});';
+  assert.ok(script.includes(shim), 'homeClientScript 缺少 __name/__defProp 垫片——wrangler 部署后浏览器端 ReferenceError');
+  assert.ok(script.indexOf(shim) < script.indexOf('const escapeText ='), '垫片须位于全部 toString 内联函数之前');
+});
