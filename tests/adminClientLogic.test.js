@@ -20,6 +20,7 @@ import {
   webdavStatusText,
 } from '../src/pages/clientLogic.js';
 import { adminJs } from '../src/pages/admin/scripts/index.js';
+import { readFileSync } from 'node:fs';
 
 test('内联契约回归锁：后台簇全部导出函数源码不含反引号与 ${', () => {
   for (const fn of [formatBytes, formatPeak, formatTokenScopes, getAnalyticsScores, heatLevel, normalizeAiAdminItems, normalizePickerColor, renderSyncStats, syncFailedHtml, syncListHtml, syncStatPill, webdavStatusText]) {
@@ -130,4 +131,11 @@ test('adminJs 模板完整性：引用的 UPPER_SNAKE 常量均有定义（IS_DE
   assert.deepEqual(missing, [], '模板引用了未定义的常量——收编时漏内联（2026-08-16 曾删掉 IS_DEAD_SITE/IS_UNKNOWN_SITE 致后台书签列表 ReferenceError）');
   assert.ok(adminJs.includes('const IS_DEAD_SITE='), 'IS_DEAD_SITE 内联必须存在');
   assert.ok(adminJs.includes('const IS_UNKNOWN_SITE='), 'IS_UNKNOWN_SITE 内联必须存在');
+});
+
+test('clientLogic 函数体不引用 escapeHTML 别名（esbuild 打包重命名碰撞回归锁）', () => {
+  const src = readFileSync(new URL('../src/pages/clientLogic.js', import.meta.url), 'utf8');
+  assert.equal((src.match(/escapeHTML\(/g) || []).length, 0, '函数体引用 escapeHTML 别名会在 wrangler 打包后被改名（escapeHTML2），toString 内联即 ReferenceError——应引用自有 escapeText');
+  assert.ok(src.includes('const escapeHTML = escapeText;'), 'escapeHTML 别名声明必须保留（模板历史调用名）');
+  assert.ok(adminJs.includes('const escapeText=escapeHTML;'), 'adminJs 应定义 escapeText 别名（clientLogic 函数体统一引用 escapeText）');
 });

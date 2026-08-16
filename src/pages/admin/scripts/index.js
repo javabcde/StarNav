@@ -27,6 +27,10 @@ var __defProp=Object.defineProperty;var __name=(t,v)=>__defProp(t,"name",{value:
 const IS_DEAD_SITE=${isDeadSite.toString()};
 const IS_UNKNOWN_SITE=${isUnknownSite.toString()};
 const escapeHTML=${escapeText.toString()};
+// clientLogic 函数体统一引用自有 escapeText（避免与 lib/utils.js 导出 escapeHTML 的
+// 打包合并作用域重命名碰撞——实测 esbuild 将别名改名 escapeHTML2，内联即 ReferenceError）；
+// 模板保留历史调用名 escapeHTML，并建立同引用别名。
+const escapeText=escapeHTML;
 const apiJson=${apiJson.toString()};
 const normalizeUrl=${normalizeClientUrl.toString()};
 const heatLevel=${heatLevel.toString()};

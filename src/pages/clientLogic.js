@@ -1,8 +1,10 @@
 // 页面客户端纯逻辑（client logic）：首页与后台客户端脚本的共享纯函数。
 // 经 toString() 生成期内联进模板（clientScript.js String.raw / adminJs 模板），node:test 直接单测。
 // 内联约束（见 clientScript.js 模块加载探针）：函数体禁止反引号与 ${ 序列；
-// 函数体引用的自由符号（escapeHTML 别名、weekdayNames）必须在模板作用域同名存在——
-// 模板侧负责一并内联或定义（escapeHTML/escapeText、weekdayNames/WEEKDAY_NAMES）。
+// 函数体引用的自由符号（escapeText、weekdayNames）必须在模板作用域同名存在——
+// 模板侧负责一并内联或定义（adminJs 另设 const escapeText=escapeHTML 别名）。
+// 禁止函数体引用 escapeHTML 别名：wrangler 打包（esbuild）与 lib/utils.js 的 escapeHTML
+// 导出合并作用域后必然重命名其一（实测别名被改名 escapeHTML2），toString 内联即 ReferenceError。
 // 2026-08-16 架构评审候选 2：收编首页 escapeText/normalizeClientUrl/normalizeAiText 与
 // 后台 escapeHTML/normalizeUrl 及分析/同步/备份/Token 簇的逐份副本。
 export function escapeText(v) {
@@ -97,7 +99,7 @@ export function normalizePickerColor(value) {
 // Token scope 标签渲染（逗号/空白分隔），空列表回退 read 徽章。
 export function formatTokenScopes(scopes) {
   return (Array.isArray(scopes) ? scopes : String(scopes || '').split(/[,\s]+/)).filter(Boolean)
-    .map((s) => '<span class="tag-pill">' + escapeHTML(s) + '</span>').join(' ') || '<span class="tag-pill">read</span>';
+    .map((s) => '<span class="tag-pill">' + escapeText(s) + '</span>').join(' ') || '<span class="tag-pill">read</span>';
 }
 
 // 同步统计药丸。
@@ -110,7 +112,7 @@ export function syncStatPill(label, count, danger = false) {
 // 同步列表摘要 HTML（上限 cap 条，超出追加省略说明）。
 export function syncListHtml(items, cap = 50) {
   const list = items || [];
-  let html = list.slice(0, cap).map((it) => '<li>' + escapeHTML(it.name || '未命名') + '（' + escapeHTML(it.url || '') + '）</li>').join('');
+  let html = list.slice(0, cap).map((it) => '<li>' + escapeText(it.name || '未命名') + '（' + escapeText(it.url || '') + '）</li>').join('');
   if (list.length > cap) html += '<li>… 等共 ' + list.length + ' 条</li>';
   return html;
 }
@@ -119,7 +121,7 @@ export function syncListHtml(items, cap = 50) {
 export function syncFailedHtml(items) {
   if (!items || !items.length) return '';
   const list = items || [];
-  return '<div class="ai-status error" style="white-space:normal;margin-top:10px"><strong>失败 ' + list.length + ' 条：</strong><ul style="margin:8px 0 0;padding-left:20px;line-height:1.8">' + list.slice(0, 50).map((it) => '<li>' + escapeHTML(it.url || '（无 URL）') + '：' + escapeHTML(it.reason || '未知原因') + '</li>').join('') + (list.length > 50 ? '<li>… 等共 ' + list.length + ' 条</li>' : '') + '</ul></div>';
+  return '<div class="ai-status error" style="white-space:normal;margin-top:10px"><strong>失败 ' + list.length + ' 条：</strong><ul style="margin:8px 0 0;padding-left:20px;line-height:1.8">' + list.slice(0, 50).map((it) => '<li>' + escapeText(it.url || '（无 URL）') + '：' + escapeText(it.reason || '未知原因') + '</li>').join('') + (list.length > 50 ? '<li>… 等共 ' + list.length + ' 条</li>' : '') + '</ul></div>';
 }
 
 // 同步统计条 HTML（新增/更新/删除/跳过/失败五枚药丸）。
