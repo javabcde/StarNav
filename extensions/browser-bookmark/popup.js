@@ -52,9 +52,6 @@ function normalizeBaseUrl(value) {
   return String(value || '').trim().replace(/\/+$/g, '');
 }
 
-function authHeaders() {
-  return config.token ? { Authorization: `Bearer ${config.token}` } : {};
-}
 
 async function restoreCachedExtensionIcon() {
   if (!chrome.action?.setIcon || !config.siteIcon) return false;
@@ -89,32 +86,7 @@ async function apiFetch(path, options = {}) {
   const baseUrl = normalizeBaseUrl(config.baseUrl);
   if (!baseUrl) throw new Error(`请先在设置中填写 ${config.siteName || 'StarNav'} 地址`);
   if (!config.token) throw new Error('请先在设置中填写 Bearer Token');
-
-  const res = await fetch(`${baseUrl}${path}`, {
-    ...options,
-    headers: {
-      ...authHeaders(),
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(options.headers || {}),
-    },
-  });
-
-  const text = await res.text();
-  let data = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = { raw: text };
-  }
-
-  if (!res.ok) {
-    const error = new Error(data?.message || data?.error || `请求失败：HTTP ${res.status}`);
-    error.status = res.status;
-    error.data = data;
-    throw error;
-  }
-
-  return data;
+  return Contract.apiFetch(path, { baseUrl, token: config.token, ...options });
 }
 
 function escapeHTML(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
@@ -256,11 +228,11 @@ async function initPopup() {
   // 必须在 setStatus('插件已就绪。') 之后执行，否则会被其覆盖（reviewer F1）。
   // 403=整站锁/token 问题、404=书签不存在、timeout=服务端抓取超时
   try {
-    const debug = (await chrome.storage.local.get('favicon:debug:last'))['favicon:debug:last'];
+    const debug = (await chrome.storage.local.get(Contract.STORAGE_KEYS.FAVICON_DEBUG_LAST))[Contract.STORAGE_KEYS.FAVICON_DEBUG_LAST];
     if (debug && debug.at && Date.now() - debug.at < 10 * 60 * 1000) {
       const reason = debug.httpStatus ? `${debug.reason} (HTTP ${debug.httpStatus})` : debug.reason;
       setStatus(`上次图标补全未生效：${reason}`, 'warning');
-      chrome.storage.local.remove('favicon:debug:last').catch(() => {});
+      chrome.storage.local.remove(Contract.STORAGE_KEYS.FAVICON_DEBUG_LAST).catch(() => {});
     }
   } catch {
     // 忽略读取失败
@@ -566,8 +538,8 @@ els.tabCollect.addEventListener('click', () => switchTab(els.tabCollect));
 els.tabSync.addEventListener('click', () => switchTab(els.tabSync));
 
 // ===== 站内书签浏览 =====
-const BROWSE_CACHE_KEY = 'browse:cache:v1';
-const BROWSE_CACHE_DEFAULT_MINUTES = 5;
+const BROWSE_CACHE_KEY = Contract.BROWSE_CACHE_KEY;
+const BROWSE_CACHE_DEFAULT_MINUTES = Contract.BROWSE_CACHE_DEFAULT_MINUTES;
 
 const browseState = {
   page: 1,
@@ -687,7 +659,7 @@ function renderBrowseList() {
         // （popup 关闭后由 background 接管；有图标/未配置则 background 静默跳过）
         const siteId = itemEl.dataset.id;
         if (siteId && !itemEl.querySelector('img.browse-logo')) {
-          chrome.runtime.sendMessage({ type: 'ensure-favicon', siteId }).catch(() => {});
+          chrome.runtime.sendMessage({ type: Contract.MESSAGE_TYPES.ENSURE_FAVICON, siteId }).catch(() => {});
         }
         itemEl.classList.add('jumping');
         setTimeout(async () => {
@@ -829,7 +801,7 @@ function applyBrowseView({ append = false } = {}) {
     return;
   }
   const catelogNames = browseState.catelog
-    ? collectCategoryNames(browseCategories, browseState.catelog)
+    ? BrowseLogic.collectCategoryNames(browseCategories, browseState.catelog)
     : null;
   const filtered = BrowseLogic.filterBrowseItems(browseState.cacheItems, browseState, catelogNames);
   browseState.total = filtered.length;
@@ -841,27 +813,6 @@ function applyBrowseView({ append = false } = {}) {
   saveBrowseView();
 }
 
-// 收集分类及其全部子孙名（供客户端分类过滤，父分类含子孙书签）
-function collectCategoryNames(flat, name) {
-  const set = new Set();
-  const tree = BrowseLogic.buildCategoryTree([{ name: '', level: 0 }, ...flat]);
-  const walk = (nodes) => {
-    for (const n of nodes) {
-      if (n.name === name) {
-        collectSubtree(n, set);
-        return true;
-      }
-      if (walk(n.children)) return true;
-    }
-    return false;
-  };
-  walk(tree);
-  return set;
-}
-function collectSubtree(node, set) {
-  set.add(node.name);
-  for (const c of node.children) collectSubtree(c, set);
-}
 
 // 打开浏览视图：新格式缓存新鲜 → 零请求渲染；过期 → 渲染 + 后台刷新；
 // 无缓存/旧格式 → 初始化态拉全量重建
@@ -889,7 +840,7 @@ async function ensureBrowseCache() {
 let browseCategories = [];
 
 // 上次浏览视图（分类/搜索/排序）：恢复后立即生效于本地过滤
-const BROWSE_VIEW_KEY = 'browse:view:v1';
+const BROWSE_VIEW_KEY = Contract.STORAGE_KEYS.BROWSE_VIEW;
 function saveBrowseView() {
   try {
     localStorage.setItem(BROWSE_VIEW_KEY, JSON.stringify({
@@ -904,11 +855,12 @@ function saveBrowseView() {
 }
 function restoreBrowseView() {
   try {
-    const saved = JSON.parse(localStorage.getItem(BROWSE_VIEW_KEY) || 'null');
+    const saved = BrowseLogic.deserializeView(localStorage.getItem(BROWSE_VIEW_KEY));
     if (!saved) return;
-    browseState.catelog = String(saved.catelog || '');
-    browseState.keyword = String(saved.keyword || '');
-    browseState.sort = String(saved.sort || '');
+    browseState.catelog = saved.catelog;
+    browseState.keyword = saved.keyword;
+    browseState.sort = saved.sort;
+    // 存储不可用（隐私模式等）时保持默认视图
   } catch {
     // 解析失败用默认视图
   }
@@ -975,8 +927,7 @@ function renderCategories() {
         // 手风琴语义：点任意分类按钮都收起当前展开（与点箭头一致）；
         // 若点击的是子分类，renderCategories 会按祖先链自动恢复其父的展开
         expandedCategories.clear();
-        browseState.catelog = cat;
-        browseState.page = 1;
+        Object.assign(browseState, BrowseLogic.applyBrowseFilter(browseState, { catelog: cat }));
         renderCategories();
         // 客户端过滤（守卫：缓存未就绪先触发全量拉取）
         ensureBrowseCache().then(() => applyBrowseView()).catch(() => {});
@@ -986,24 +937,18 @@ function renderCategories() {
       btn.addEventListener('click', () => {
         const name = btn.dataset.expand;
         // 手风琴：同一时间只展开一个父分类，点另一个时自动收起前一个；
-        // 再点当前展开的则收起（回到仅顶层）——逻辑见 popup-logic.js
-        const hadExpansion = expandedCategories.size > 0;
-        expandedCategories = BrowseLogic.toggleCategory(expandedCategories, name);
-        // 手动收起（非空→空）后抑制祖先链自动注入：否则筛选子分类时
-        // 收起父分类会被 injectAncestors 立即重新展开，收不回去
-        suppressAncestorInjection = hadExpansion && expandedCategories.size === 0;
+        // 再点当前展开的则收起（回到仅顶层）——含「手动收起后抑制祖先注入」
+        // 的转移规则见 popup-logic.js（toggleCategoryInState / collapseChangedFilter）
+        const nextAccordion = BrowseLogic.toggleCategoryInState({ expanded: expandedCategories }, name);
+        expandedCategories = nextAccordion.expanded;
+        suppressAncestorInjection = nextAccordion.suppressAncestorInjection;
         // 收起时若筛选在该父分类的子孙下，切回父分类（显示父+子孙全部）
-        let collapseChangedFilter = false;
-        if (suppressAncestorInjection) {
-          const current = browseState.catelog;
-          if (current && current !== name && collectCategoryNames(browseCategories, name).has(current)) {
-            browseState.catelog = name;
-            browseState.page = 1;
-            collapseChangedFilter = true;
-          }
-        }
+        const nextView = suppressAncestorInjection
+          ? BrowseLogic.collapseChangedFilter(browseState, name, browseCategories)
+          : null;
+        if (nextView) Object.assign(browseState, nextView);
         renderCategories();
-        if (collapseChangedFilter) applyBrowseView();
+        if (nextView) applyBrowseView();
       });
     }
   };
@@ -1017,8 +962,7 @@ els.browseSearch.addEventListener('input', () => {
   browseSearchTimer = setTimeout(() => {
     const keyword = els.browseSearch.value.trim();
     if (keyword === browseState.keyword) return;
-    browseState.keyword = keyword;
-    browseState.page = 1;
+    Object.assign(browseState, BrowseLogic.applyBrowseFilter(browseState, { keyword }));
     ensureBrowseCache().then(() => applyBrowseView()).catch(() => {});
   }, 300);
 });
@@ -1026,8 +970,7 @@ els.browseSearch.addEventListener('input', () => {
 els.browseSort.addEventListener('change', () => {
   const sort = els.browseSort.value;
   if (sort === browseState.sort) return;
-  browseState.sort = sort;
-  browseState.page = 1;
+  Object.assign(browseState, BrowseLogic.applyBrowseFilter(browseState, { sort }));
   ensureBrowseCache().then(() => applyBrowseView()).catch(() => {});
 });
 
@@ -1038,7 +981,7 @@ els.browseRefresh.addEventListener('click', async () => {
   if (ok) renderBrowseStatus('');
 });
 els.browseMore.addEventListener('click', () => {
-  browseState.page += 1;
+  Object.assign(browseState, BrowseLogic.applyBrowsePage(browseState, browseState.page + 1));
   applyBrowseView({ append: true });
 });
 

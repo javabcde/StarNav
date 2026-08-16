@@ -208,6 +208,106 @@
     }
   }
 
+  // ── 浏览视图状态（viewState 纯函数组）────────────────────────────
+  // 视图状态 = { catelog, keyword, sort, page }；popup.js 持有状态对象，
+  // 每次变更经纯 transition 返回新状态再渲染（IO/副作用句柄留 DOM 层）。
+
+  function defaultBrowseView() {
+    return { catelog: '', keyword: '', sort: '', page: 1 };
+  }
+
+  /**
+   * 筛选/搜索/排序变更：只改传入字段，其余保持，页码重置为 1。
+   * @param {{catelog?: string, keyword?: string, sort?: string, page?: number}} view
+   * @param {{catelog?: string, keyword?: string, sort?: string}} next 传入的字段生效，缺省保持
+   */
+  function applyBrowseFilter(view, next) {
+    return {
+      catelog: String(next.catelog ?? view.catelog ?? ''),
+      keyword: String(next.keyword ?? view.keyword ?? ''),
+      sort: String(next.sort ?? view.sort ?? ''),
+      page: 1,
+    };
+  }
+
+  /** 分页转移：页码下限 1。 */
+  function applyBrowsePage(view, page) {
+    return { ...view, page: Math.max(1, Number(page) || 1) };
+  }
+
+  /**
+   * 视图持久化反序列化：非法输入回退 null（调用方保持默认视图）。
+   * 字段按既有语义 String 强转。序列化形状由 DOM 层持有（源码锁约束，
+   * 见 popup-view-persist.test.js：catelog/keyword/sort + ts）。
+   * @param {string|null} raw localStorage 原文
+   */
+  function deserializeView(raw) {
+    try {
+      const saved = JSON.parse(raw || 'null');
+      if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return null;
+      return {
+        catelog: String(saved.catelog || ''),
+        keyword: String(saved.keyword || ''),
+        sort: String(saved.sort || ''),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 手风琴切换 + 注入抑制：展开/收起规则（toggleCategory）+「手动收起后
+   * 本次会话不再自动注入祖先链」标志，同处一地。
+   * @param {{expanded: Set<string>}} state
+   * @param {string} name 点击的父分类名
+   * @returns {{expanded: Set<string>, suppressAncestorInjection: boolean}}
+   */
+  function toggleCategoryInState(state, name) {
+    const hadExpansion = state.expanded.size > 0;
+    const expanded = toggleCategory(state.expanded, name);
+    const suppressAncestorInjection = hadExpansion && expanded.size === 0;
+    return { expanded, suppressAncestorInjection };
+  }
+
+  /**
+   * 收起父分类时若筛选在其子孙下，筛选改指父分类（显示父+子孙全部）。
+   * 仅在手动收起（suppressAncestorInjection 为真）时由调用方判定调用。
+   * @param {{catelog?: string, page?: number}} view
+   * @param {string} collapsedName 被收起的父分类名
+   * @param {Array<{name: string, level: number}>} flat 展平分类列表
+   * @returns {object|null} 变化后的视图（catelog 改指 + page 重置），未变化返回 null
+   */
+  function collapseChangedFilter(view, collapsedName, flat) {
+    const current = String(view.catelog || '');
+    if (current && current !== collapsedName && collectCategoryNames(flat, collapsedName).has(current)) {
+      return { ...view, catelog: collapsedName, page: 1 };
+    }
+    return null;
+  }
+
+  /** 收集分类及其全部子孙名（父分类筛选含子孙书签）。 */
+  function collectCategoryNames(flat, name) {
+    const set = new Set();
+    const tree = buildCategoryTree([{ name: '', level: 0 }, ...flat]);
+    const walk = (nodes) => {
+      for (const node of nodes) {
+        if (node.name === name) {
+          collectSubtree(node, set);
+          return true;
+        }
+        if (walk(node.children)) return true;
+      }
+      return false;
+    };
+    walk(tree);
+    return set;
+  }
+
+  function collectSubtree(node, set) {
+    set.add(node.name);
+    for (const child of node.children) collectSubtree(child, set);
+  }
+
   const BrowseLogic = {
     isFullBrowseCache,
     isBrowseCacheFresh,
@@ -222,6 +322,13 @@
     normalizeCategories,
     buildCategoryTree,
     collectCategoryGroups,
+    defaultBrowseView,
+    applyBrowseFilter,
+    applyBrowsePage,
+    deserializeView,
+    toggleCategoryInState,
+    collapseChangedFilter,
+    collectCategoryNames,
   };
 
   if (typeof module !== 'undefined' && module.exports) {
