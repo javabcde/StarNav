@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createAdminSession, createApiToken, revokeApiToken, validateApiToken } from '../src/lib/auth.js';
 import { errorResponse } from '../src/lib/utils.js';
 import { handleApiRequest } from '../src/handlers/api.js';
-import { handleApiError } from '../src/handlers/api/errors.js';
+import { handleApiError, requireSubmitter } from '../src/handlers/api/errors.js';
 import { createWebhook, dispatchWebhooks, listWebhooks } from '../src/services/webhookService.js';
 
 function createMemoryKv() {
@@ -74,6 +74,25 @@ function createHealthMockEnv() {
             if (/FROM\s+operation_logs/i.test(sql)) return { value: '2026-05-22 07:00:00' };
             if (/FROM\s+sites/i.test(sql)) return { value: '2026-05-22 06:30:00' };
             return null;
+          },
+        };
+      },
+    },
+  };
+}
+
+// requireSubmitter 直测：settings 表按需返回行（空 → 投稿开关默认开）。
+function createSubmitterMockEnv(settingsRows = []) {
+  return {
+    NAV_AUTH: createMemoryKv(),
+    NAV_DB: {
+      prepare() {
+        return {
+          bind() {
+            return this;
+          },
+          async all() {
+            return { results: settingsRows };
           },
         };
       },
@@ -363,4 +382,63 @@ test('POST /api/webhooks rejects non-HTTPS URL with standardized 400', async () 
   assert.equal(body.code, 400);
   assert.equal(body.error.code, 'BAD_REQUEST');
   assert.equal(body.message, 'Webhook URL must be a valid HTTPS URL');
+});
+
+// ── requireSubmitter 优先级（弱 token 校验先于 admin 会话，再落投稿开关）──────
+
+test('requireSubmitter：管理员会话直接通过，不受投稿开关影响', async () => {
+  const env = createSubmitterMockEnv([{ key: 'system.publicSubmissionEnabled', value: 'false' }]);
+  const session = await createAdminSession(env);
+  const result = await requireSubmitter(new Request('https://example.com/api/site/preview', {
+    headers: { Cookie: `nav_admin_session=${session}` },
+  }), env);
+  assert.equal(result, null, '管理员会话应在投稿开关关闭时仍通过');
+});
+
+test('requireSubmitter：write scope Bearer token 通过，不受投稿开关影响', async () => {
+  const env = createSubmitterMockEnv([{ key: 'system.publicSubmissionEnabled', value: 'false' }]);
+  const { token } = await createApiToken(env, { name: 'Write submitter', scopes: ['write'] });
+  const result = await requireSubmitter(new Request('https://example.com/api/site/preview', {
+    headers: { Authorization: `Bearer ${token}` },
+  }), env);
+  assert.equal(result, null, 'write token 应在投稿开关关闭时仍通过');
+});
+
+test('requireSubmitter：弱 token（read）+ admin cookie → 403，token 校验优先于 admin 会话', async () => {
+  const env = createSubmitterMockEnv();
+  const { token } = await createApiToken(env, { name: 'Read submitter', scopes: ['read'] });
+  const session = await createAdminSession(env);
+  const response = await requireSubmitter(new Request('https://example.com/api/site/preview', {
+    headers: { Authorization: `Bearer ${token}`, Cookie: `nav_admin_session=${session}` },
+  }), env);
+  assert.equal(response.status, 403);
+  const body = await readJson(response);
+  assert.equal(body.message, 'API token scope is insufficient');
+  assert.equal(body.details.requiredScope, 'write');
+  assert.deepEqual(body.details.tokenScopes, ['read']);
+});
+
+test('requireSubmitter：无效 Bearer token 即使投稿开关开也 403', async () => {
+  const env = createSubmitterMockEnv();
+  const response = await requireSubmitter(new Request('https://example.com/api/site/preview', {
+    headers: { Authorization: 'Bearer nav_unknown_secret' },
+  }), env);
+  assert.equal(response.status, 403);
+  const body = await readJson(response);
+  assert.equal(body.message, 'API token scope is insufficient');
+  assert.deepEqual(body.details.tokenScopes, [], '未认证 token 无 scopes 细节');
+});
+
+test('requireSubmitter：投稿开关开（默认）时匿名通过', async () => {
+  const env = createSubmitterMockEnv();
+  const result = await requireSubmitter(new Request('https://example.com/api/site/preview'), env);
+  assert.equal(result, null, '开关开时匿名投稿应通过');
+});
+
+test('requireSubmitter：投稿开关关时匿名 403', async () => {
+  const env = createSubmitterMockEnv([{ key: 'system.publicSubmissionEnabled', value: 'false' }]);
+  const response = await requireSubmitter(new Request('https://example.com/api/site/preview'), env);
+  assert.equal(response.status, 403);
+  const body = await readJson(response);
+  assert.equal(body.message, 'Public submission disabled');
 });

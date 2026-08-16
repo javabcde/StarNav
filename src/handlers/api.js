@@ -1,11 +1,11 @@
 // API 路由表（表驱动 dispatcher）：先匹配先得，静态段条目必须排在参数段条目之前。
-// 每个条目 [match, handler] 指向 api/resources/* 资源模块的命名处理函数；
+// 每个条目 [match, handler] 指向资源模块（api/resources/* 与 api/spaces.js）的命名处理函数；
 // 处理函数签名统一 (request, env, ctx, path, method, id, url)，未命中时返回 null 落到 404。
 // 鉴权（requireAdmin / requireSubmitter）与变更记录随资源模块走，不再散在路由层。
 import { errorResponse, jsonResponse } from '../lib/utils.js';
 import { getPublicApiDiscovery, getPublicOpenApiDocument } from './api/discovery.js';
 import { handleApiError } from './api/errors.js';
-import { handleSpacesApiRequest } from './api/spaces.js';
+import * as spaces from './api/spaces.js';
 import * as sites from './api/resources/sites.js';
 import * as categories from './api/resources/categories.js';
 import * as tags from './api/resources/tags.js';
@@ -26,7 +26,12 @@ const ROUTES = [
   [exact('/openapi.json', 'GET'), (request, env, ctx, path, method, id, url) => jsonResponse(getPublicOpenApiDocument(url.origin))],
   [exact('/favicon', 'GET'), sites.faviconFetch],
   [exact('/settings/public', 'GET'), settings.publicGet],
-  [anyMethodOn('/spaces'), handleSpacesApiRequest],
+  [exact('/spaces', 'GET'), spaces.handleGetSpaces],
+
+  // ── 空间（管理写冻结期：POST/PUT/DELETE 过门禁后一律 409）──
+  [exact('/spaces', 'POST'), spaces.handleSpacesCreate],
+  [re(/^\/spaces\/[^/]+$/, 'PUT'), spaces.handleSpacesUpdate],
+  [re(/^\/spaces\/[^/]+$/, 'DELETE'), spaces.handleSpacesDelete],
 
   // ── 站点域（sites/config/pending/submissions）────────
   [re(/^\/site\/[^/]+\/ensure-favicon$/, 'POST'), sites.ensureFavicon],

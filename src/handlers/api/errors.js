@@ -1,5 +1,5 @@
 import { conflict, errorResponse, forbidden, isSubmissionEnabled, jsonResponse, unauthorized } from '../../lib/utils.js';
-import { hasBearerToken, isAdminAuthenticated, tokenHasScope, validateApiToken } from '../../lib/auth.js';
+import { hasBearerToken, tokenHasScope } from '../../lib/auth.js';
 import { getAccessContext } from '../../services/accessService.js';
 import { getSystemSettings } from '../../services/systemSettingsService.js';
 
@@ -30,17 +30,27 @@ export async function requireAdmin(request, env, options = {}) {
 /**
  * 公开投稿鉴权（管理员 cookie / write token / 投稿开关三段合一）：
  * /site/preview 与 /submit/suggest-* 共用，替代三份逐字复制的内联判定。
+ * 弱 token 优先级与 requireAdmin 对齐：带 Bearer 头但未认证或 scope 不足时，
+ * 先于 admin 会话判定短路 403（评审定案：消除「弱 token + admin cookie 跳过 token 校验」的分歧）。
  * 返回 null 表示通过，否则为错误响应。
  */
 export async function requireSubmitter(request, env) {
-  const adminAuthed = await isAdminAuthenticated(request, env);
-  const tokenAuth = adminAuthed ? { authenticated: true } : await validateApiToken(request, env, 'write');
-  if (!adminAuthed && !tokenAuth.authenticated) {
-    const settings = await getSystemSettings(env);
-    if (!isSubmissionEnabled(env, settings)) return errorResponse('Public submission disabled', 403);
+  const access = await getAccessContext(request, env);
+
+  if (hasBearerToken(request) && (!access.tokenAuthenticated || !tokenHasScope(access.tokenScopes, 'write'))) {
+    return forbidden('API token scope is insufficient', {
+      requiredScope: 'write',
+      tokenScopes: access.tokenScopes,
+    });
   }
-  if (tokenAuth.forbidden) return errorResponse('API token scope is insufficient', 403);
-  return null;
+
+  if (access.adminAuthed) return null;
+  if (access.tokenAuthenticated && tokenHasScope(access.tokenScopes, 'write')) return null;
+
+  // 匿名投稿：受系统投稿开关控制
+  const settings = await getSystemSettings(env);
+  if (isSubmissionEnabled(env, settings)) return null;
+  return errorResponse('Public submission disabled', 403);
 }
 
 export async function handleApiError(error) {
