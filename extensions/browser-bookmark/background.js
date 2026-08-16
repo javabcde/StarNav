@@ -3,7 +3,7 @@
 // 服务端冷启动延迟不再被用户感知。
 // 契约模块（extension-contract.js）与浏览逻辑（popup-logic.js）先行加载：
 // 缓存键/形状常量、消息类型、HTTP 客户端、收藏载荷来自 Contract；
-// 形状守卫/分类树展平来自 BrowseLogic（与 popup 共用，不再本地拷贝）。
+// 形状守卫/全量缓存构建（fetchFullBrowseCache）来自 BrowseLogic（与 popup 共用，不再本地拷贝）。
 importScripts('extension-contract.js', 'popup-logic.js');
 
 async function warmBrowseCache() {
@@ -13,23 +13,15 @@ async function warmBrowseCache() {
     const token = settings.token || '';
     if (!baseUrl || !token) return;
 
-    const [listData, catsData] = await Promise.all([
-      Contract.apiFetch('/api/config?all=1', { baseUrl, token }),
-      Contract.apiFetch('/api/categories/tree', { baseUrl, token }),
-    ]);
-    // 与 popup 的 loadFullCache 同构：data 为全量书签数组
-    const data = listData && listData.data;
-    const items = Array.isArray(data) ? data : [];
-    const total = Number(listData.total != null ? listData.total : items.length) || items.length;
-    // 分类树展平为 [{ name, level }]（与 popup 共用 BrowseLogic.flattenCategoryTree）
-    const tree = Array.isArray(catsData && catsData.data) ? catsData.data : [];
-    const categories = BrowseLogic.flattenCategoryTree(tree);
-    const minutes = Number(settings.browseCacheMinutes);
-    const ttlMinutes = Number.isFinite(minutes) && minutes >= 0 ? minutes : Contract.BROWSE_CACHE_DEFAULT_MINUTES;
+    // 全量缓存构建统一走 BrowseLogic.fetchFullBrowseCache（与 popup 的 loadFullCache 同构）
+    const cache = await BrowseLogic.fetchFullBrowseCache(
+      (path) => Contract.apiFetch(path, { baseUrl, token }),
+      { minutes: settings.browseCacheMinutes },
+    );
 
     // 写新格式全量缓存（kind==='full'）；旧格式缓存会被 popup 视为无效重建
     await chrome.storage.local.set({
-      [Contract.BROWSE_CACHE_KEY]: { kind: 'full', fetchedAt: Date.now(), ttlMinutes, items, total, categories },
+      [Contract.BROWSE_CACHE_KEY]: cache,
     });
   } catch {
     // 预热失败静默：popup 首次打开仍走正常拉取

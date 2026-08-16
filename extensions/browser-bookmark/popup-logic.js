@@ -33,6 +33,45 @@
     };
   }
 
+  // 契约常量取全局 Contract（extension-contract.js 先于本文件加载，
+  // 见 popup.html 的 script 顺序与 background.js 的 importScripts 顺序）
+  function contractDefaultCacheMinutes() {
+    if (!global.Contract) {
+      throw new Error('popup-logic 依赖全局 Contract：extension-contract.js 须先于 popup-logic.js 加载');
+    }
+    return global.Contract.BROWSE_CACHE_DEFAULT_MINUTES;
+  }
+
+  /**
+   * 全量缓存构建器：并行拉取全量书签与分类树，归一 TTL 与 total 后组装
+   * kind==='full' 全量缓存（形状契约见 extension-contract.js 的 BROWSE_CACHE_FIELDS）。
+   * 纯数据层：不写 chrome.storage、不碰 DOM，写入时机由调用方决定。
+   * @param {(path: string) => Promise<object>} apiFetch 统一 API 客户端（调用参数与既有调用点一致：仅 path）
+   * @param {{minutes?: number|string}} [options] browseCacheMinutes 原始配置值（0 = 不缓存；非法值回退默认）
+   * @returns {Promise<{kind: 'full', fetchedAt: number, ttlMinutes: number, items: Array<object>, total: number, categories: Array<{name: string, level: number}>}>}
+   */
+  async function fetchFullBrowseCache(apiFetch, { minutes } = {}) {
+    const [listResult, catsResult] = await Promise.all([
+      apiFetch('/api/config?all=1'),
+      apiFetch('/api/categories/tree'),
+    ]);
+    // listResult.data 为全量书签数组；total 兜底链：缺失取长度 → Number 失败再回长度
+    const data = listResult && listResult.data;
+    const items = Array.isArray(data) ? data : [];
+    const total = Number(listResult.total != null ? listResult.total : items.length) || items.length;
+    // 分类树展平为 [{ name, level }]
+    const tree = Array.isArray(catsResult && catsResult.data) ? catsResult.data : [];
+    const categories = flattenCategoryTree(tree);
+    const normalized = Number(minutes);
+    const ttlMinutes = Number.isFinite(normalized) && normalized >= 0 ? normalized : contractDefaultCacheMinutes();
+
+    const cache = { kind: 'full', fetchedAt: Date.now(), ttlMinutes, items, total, categories };
+    if (!isFullBrowseCache(cache)) {
+      throw new Error('全量缓存构建结果未通过 isFullBrowseCache 形状守卫');
+    }
+    return cache;
+  }
+
   /**
    * 客户端过滤全量书签（仅对 kind==='full' 缓存生效；非 full 不得对部分数据过滤）。
    * @param {Array<object>} items 全量书签
@@ -312,6 +351,7 @@
     isFullBrowseCache,
     isBrowseCacheFresh,
     decideBrowseView,
+    fetchFullBrowseCache,
     filterBrowseItems,
     paginateItems,
     browseHasMore,

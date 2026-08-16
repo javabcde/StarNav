@@ -193,7 +193,8 @@
         + '<div class="browse-empty browse-init-hint">正在初始化书签…</div>';
     }
 
-    // 全量拉取：/api/config?all=1 + 分类树 并行，写新格式缓存并就地渲染
+    // 全量拉取：/api/config?all=1 + 分类树 并行（构建统一走 BrowseLogic.fetchFullBrowseCache），
+    // 写新格式缓存并就地渲染
     async function loadFullCache({ silent = false } = {}) {
       if (browseState.loading) return browseLoadInFlight;
       browseState.loading = true;
@@ -201,27 +202,10 @@
 
       const task = (async () => {
         try {
-          const [listResult, catsResult] = await Promise.all([
-            apiFetch('/api/config?all=1'),
-            apiFetch('/api/categories/tree'),
-          ]);
-          const data = listResult && listResult.data;
-          const items = Array.isArray(data) ? data : [];
-          const total = Number(listResult.total != null ? listResult.total : items.length) || items.length;
-          const tree = Array.isArray(catsResult && catsResult.data) ? catsResult.data : [];
-          browseCategories = BrowseLogic.flattenCategoryTree(tree);
-
-          const cache = {
-            kind: 'full',
-            fetchedAt: Date.now(),
-            ttlMinutes: effectiveCacheMinutes(),
-            items,
-            total,
-            categories: browseCategories,
-          };
+          const cache = await BrowseLogic.fetchFullBrowseCache(apiFetch, { minutes: effectiveCacheMinutes() });
           await writeBrowseCache(cache);
 
-          useFullCache(cache); // 内部经 applyBrowseView 统一保存视图
+          useFullCache(cache); // 内部经 applyBrowseView 统一保存视图并设置 browseCategories
           return true;
         } catch (error) {
           // 非静默（首开/守卫/手动刷新）：渲染可点击重试；静默（后台刷新）失败
