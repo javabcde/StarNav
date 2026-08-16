@@ -1,8 +1,8 @@
+import { getAccent } from '../pages/home/accents.js';
 import { getSystemSettings } from '../services/systemSettingsService.js';
 
 const APP_NAME = '星漫旅站';
 const APP_SHORT_NAME = '星漫旅站';
-const THEME_COLOR = '#254267';
 const BACKGROUND_COLOR = '#0f172a';
 
 function textResponse(body, contentType, headers = {}) {
@@ -27,28 +27,11 @@ function getSimpleHash(str) {
 
 function buildIconSvg(size = 512, accent = 'blue') {
   const safeSize = Number(size) || 512;
-  
-  let stop0 = '#254267';
-  let stop55 = '#416d9d';
-  let stop100 = '#3c976d';
-  
-  if (accent === 'green') {
-    stop0 = '#265c44';
-    stop55 = '#2e7755';
-    stop100 = '#3c976d';
-  } else if (accent === 'purple') {
-    stop0 = '#5b3b8c';
-    stop55 = '#6d4bb3';
-    stop100 = '#8b5cf6';
-  } else if (accent === 'rose') {
-    stop0 = '#9f3758';
-    stop55 = '#be4169';
-    stop100 = '#e0527d';
-  } else if (accent === 'amber') {
-    stop0 = '#8a5a16';
-    stop55 = '#b7791f';
-    stop100 = '#d97706';
-  }
+  // 渐变三档 stop 全部从强调色板推导（blue 档中段 stop 现状即 #416d9d，见 accents.js）
+  const tone = getAccent(accent);
+  const stop0 = tone.primary;
+  const stop55 = tone.iconStop55;
+  const stop100 = tone.accent;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${safeSize}" height="${safeSize}" viewBox="0 0 512 512" role="img" aria-label="Icon">
   <defs>
@@ -100,11 +83,7 @@ export async function handlePwaRequest(request, env) {
   const siteIcon = systemSettings?.siteIcon || '/pwa-icon.svg';
   const accent = systemSettings?.defaultAccent || 'blue';
 
-  let themeColor = THEME_COLOR;
-  if (accent === 'green') themeColor = '#265c44';
-  else if (accent === 'purple') themeColor = '#5b3b8c';
-  else if (accent === 'rose') themeColor = '#9f3758';
-  else if (accent === 'amber') themeColor = '#8a5a16';
+  const themeColor = getAccent(accent).primary;
 
   if (isManifest) {
     const manifestIcons = [];

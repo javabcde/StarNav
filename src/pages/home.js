@@ -22,6 +22,7 @@ import { renderFrontAdminModal, renderSubmitModal } from './home/modals.js';
 import { frontAdminScript, dragScript, myUsageScript } from './home/scripts.js';
 import { homeClientScript } from './home/clientScript.js';
 import { homeCssVersion } from './home/css.js';
+import { ACCENTS, DEFAULT_ACCENT, accentVarsCss } from './home/accents.js';
 
 // 收集某分类及其全部子孙分类名（分类树递归，与 API 端递归 CTE 语义一致）
 function collectCategoryWithDescendants(nodes, targetName, acc = new Set()) {
@@ -200,7 +201,7 @@ export async function renderHomePage(request, env, ctx) {
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHTML(siteName)}</title>
-  <meta name="theme-color" content="${escapeHTML(defaultAccent === 'green' ? '#265c44' : (defaultAccent === 'purple' ? '#5b3b8c' : (defaultAccent === 'rose' ? '#9f3758' : (defaultAccent === 'amber' ? '#8a5a16' : '#254267'))))}">
+  <meta name="theme-color" content="${escapeHTML((ACCENTS[defaultAccent] || ACCENTS[DEFAULT_ACCENT]).primary)}">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="${escapeHTML(siteName)}">
@@ -212,6 +213,7 @@ export async function renderHomePage(request, env, ctx) {
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet"/>
   <link rel="icon" href="${escapeHTML(siteIcon)}"/>
   <link rel="alternate icon" href="https://img.12388888.xyz/file/logo/ktVNDfcM.png" type="image/png"/>
+  <style>${accentVarsCss()}</style>
   <link rel="stylesheet" href="/static/home.css?v=${homeCssVersion}"/>
   <script>
     (function(){try{const root=document.documentElement;const saved=localStorage.getItem('nav:theme');const prefersDark=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;if(saved==='dark'||(!saved&&prefersDark)){root.classList.add('dark')}var defaultAccent='${escapeHTML(defaultAccent)}',defaultLayout='${escapeHTML(defaultLayout)}',defaultBg='${pageBackgroundImage ? 'image' : 'soft'}';root.dataset.accent=localStorage.getItem('nav:accent')||defaultAccent;root.dataset.density=localStorage.getItem('nav:density')||'comfortable';root.dataset.bg=localStorage.getItem('nav:bg')||defaultBg;root.dataset.view=localStorage.getItem('nav:view')||'detail';root.dataset.layout=localStorage.getItem('nav:layout')||defaultLayout;var bgImage=localStorage.getItem('nav:bgImage')||'${escapeHTML(pageBackgroundImage)}';if(bgImage)document.documentElement.style.setProperty('--nav-bg-image','url('+bgImage+')');var now=new Date(),m=now.getMonth()+1,d=now.getDate();var festival='';if(m===1&&d<=3)festival='newyear';else if(m===2&&d===14)festival='valentine';else if(m===12&&(d>=24&&d<=25))festival='christmas';else if(m===10&&d===31)festival='halloween';else if(m===5&&d>=1&&d<=3)festival='labor';root.dataset.festival=festival}catch(e){}})();
@@ -366,11 +368,11 @@ export async function renderHomePage(request, env, ctx) {
         <div>
           <div class="mb-1.5 font-medium">${th('themeColor')}</div>
           <div class="grid grid-cols-5 gap-1.5" data-theme-group="accent">
-            <button type="button" class="theme-choice h-7 rounded-full bg-[#254267] ring-offset-2" data-theme-key="accent" data-theme-value="blue" title="星空蓝"></button>
-            <button type="button" class="theme-choice h-7 rounded-full bg-[#3c976d] ring-offset-2" data-theme-key="accent" data-theme-value="green" title="森林绿"></button>
-            <button type="button" class="theme-choice h-7 rounded-full bg-[#8b5cf6] ring-offset-2" data-theme-key="accent" data-theme-value="purple" title="暮光紫"></button>
-            <button type="button" class="theme-choice h-7 rounded-full bg-[#e0527d] ring-offset-2" data-theme-key="accent" data-theme-value="rose" title="蔷薇红"></button>
-            <button type="button" class="theme-choice h-7 rounded-full bg-[#d97706] ring-offset-2" data-theme-key="accent" data-theme-value="amber" title="琥珀金"></button>
+            <button type="button" class="theme-choice h-7 rounded-full ${ACCENTS.blue.swatch} ring-offset-2" data-theme-key="accent" data-theme-value="blue" title="星空蓝"></button>
+            <button type="button" class="theme-choice h-7 rounded-full ${ACCENTS.green.swatch} ring-offset-2" data-theme-key="accent" data-theme-value="green" title="森林绿"></button>
+            <button type="button" class="theme-choice h-7 rounded-full ${ACCENTS.purple.swatch} ring-offset-2" data-theme-key="accent" data-theme-value="purple" title="暮光紫"></button>
+            <button type="button" class="theme-choice h-7 rounded-full ${ACCENTS.rose.swatch} ring-offset-2" data-theme-key="accent" data-theme-value="rose" title="蔷薇红"></button>
+            <button type="button" class="theme-choice h-7 rounded-full ${ACCENTS.amber.swatch} ring-offset-2" data-theme-key="accent" data-theme-value="amber" title="琥珀金"></button>
           </div>
         </div>
         <div>

@@ -1,9 +1,6 @@
 /* 首页自定义样式：迁移自 home.js 内联 <style>，经构建拼接到 Tailwind 输出之后。 */
+/* 各强调色的变量块已迁至 pages/home/accents.js（home.js 以内联 <style> 输出）；此处仅保留 :root 默认蓝（锁页等非首页共用）。 */
 :root{--nav-primary:#254267;--nav-primary-600:#305580;--nav-primary-50:#f3f5f9;--nav-accent:#3c976d;--nav-accent-600:#2e7755;--nav-secondary-50:#fdf8f3;--nav-card-radius:0.75rem;--nav-card-padding:1.25rem;--nav-grid-gap:1rem;--nav-hero-gradient:linear-gradient(135deg,var(--nav-primary),var(--nav-primary-600));--nav-page-bg:#fdf8f3}
-    html[data-accent="green"]{--nav-primary:#265c44;--nav-primary-600:#2e7755;--nav-primary-50:#f2faf6;--nav-accent:#3c976d;--nav-accent-600:#2e7755;--nav-secondary-50:#f7fbf8;--nav-hero-gradient:linear-gradient(135deg,#265c44,#3c976d)}
-    html[data-accent="purple"]{--nav-primary:#5b3b8c;--nav-primary-600:#6d4bb3;--nav-primary-50:#f6f2ff;--nav-accent:#8b5cf6;--nav-accent-600:#7c3aed;--nav-secondary-50:#fbf8ff;--nav-hero-gradient:linear-gradient(135deg,#4c1d95,#7c3aed)}
-    html[data-accent="rose"]{--nav-primary:#9f3758;--nav-primary-600:#be4169;--nav-primary-50:#fff1f5;--nav-accent:#e0527d;--nav-accent-600:#be4169;--nav-secondary-50:#fff7f9;--nav-hero-gradient:linear-gradient(135deg,#9f3758,#e0527d)}
-    html[data-accent="amber"]{--nav-primary:#8a5a16;--nav-primary-600:#b7791f;--nav-primary-50:#fffbeb;--nav-accent:#d97706;--nav-accent-600:#b45309;--nav-secondary-50:#fffaf0;--nav-hero-gradient:linear-gradient(135deg,#78350f,#d97706)}
     html[data-density="compact"]{--nav-card-padding:.85rem;--nav-grid-gap:.75rem;--nav-card-radius:.6rem}
     html[data-density="spacious"]{--nav-card-padding:1.65rem;--nav-grid-gap:1.5rem;--nav-card-radius:1rem}
     html[data-bg="plain"]{--nav-page-bg:#f8fafc}

@@ -1,4 +1,9 @@
 import { escapeHTML, sanitizeUrl, sanitizeImageUrl } from '../../lib/utils.js';
+import { CARD_CONTRACT } from './cardContract.js';
+
+// 卡片形状契约（与 clientScript.js 生成期共用）：class 串、徽章文案、data 属性名单一来源
+const { wrapperClass, healthBadgeClass, healthBadgeLabel, lastCheckedPrefix } = CARD_CONTRACT;
+const [attrId, attrName, attrUrl, attrCatalog, attrTags] = CARD_CONTRACT.dataAttrs;
 
 export function isUnhealthySite(site) {
   const statusCode = Number(site?.last_status_code);
@@ -10,9 +15,9 @@ export function renderHealthBadge(site) {
   const details = [
     site.last_status_code ? `HTTP ${site.last_status_code}` : '',
     site.last_error || '',
-    site.last_checked_at ? `最近检测：${String(site.last_checked_at).slice(0, 19)}` : '',
+    site.last_checked_at ? `${lastCheckedPrefix}${String(site.last_checked_at).slice(0, 19)}` : '',
   ].filter(Boolean).join(' · ');
-  return `<span class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-600" title="${escapeHTML(details || '最近检测异常')}">可能失效</span>`;
+  return `<span class="${healthBadgeClass}" title="${escapeHTML(details || '最近检测异常')}">${healthBadgeLabel}</span>`;
 }
 
 export function renderMiniSiteLink(site, meta = '', i18n = null) {
@@ -106,7 +111,7 @@ export function renderSiteCard(site, draggable, isAdmin = false, i18n = null) {
   const adminActions = isAdmin
     ? `<div class="mt-3 flex gap-2 border-t border-primary-50 pt-3"><button type="button" class="front-edit-btn flex-1 rounded-lg bg-primary-50 px-3 py-1.5 text-xs font-medium text-primary-700 hover:bg-primary-100" data-id="${site.id}">${escapeHTML(i18n?.t?.('edit') || '编辑')}</button><button type="button" class="front-delete-btn flex-1 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100" data-id="${site.id}" data-name="${escapeHTML(name)}">${escapeHTML(i18n?.t?.('delete') || '删除')}</button></div>`
     : '';
-  return `<div class="site-card group bg-white border border-primary-100/60 rounded-xl shadow-sm overflow-hidden ${draggable ? 'cursor-move' : ''}" data-id="${site.id}" data-name="${escapeHTML(name)}" data-url="${escapeHTML(normalizedUrl || site.url || '')}" data-catalog="${escapeHTML(catalog)}" data-tags="${escapeHTML(tags.join(' '))}" ${draggable ? 'draggable="true"' : ''}>
+  return `<div class="${wrapperClass} ${draggable ? 'cursor-move' : ''}" ${attrId}="${site.id}" ${attrName}="${escapeHTML(name)}" ${attrUrl}="${escapeHTML(normalizedUrl || site.url || '')}" ${attrCatalog}="${escapeHTML(catalog)}" ${attrTags}="${escapeHTML(tags.join(' '))}" ${draggable ? 'draggable="true"' : ''}>
     <div class="p-5">
       <a href="${escapeHTML(visitUrl)}" ${normalizedUrl ? 'target="_blank" rel="noopener noreferrer"' : ''} class="block">
         <div class="flex items-start"><div class="flex-shrink-0 mr-4">${logoUrl ? `<img src="${escapeHTML(logoUrl)}" alt="${escapeHTML(name)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" class="w-10 h-10 rounded-lg object-cover bg-gray-100" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="w-10 h-10 rounded-lg bg-primary-600 items-center justify-center text-white font-semibold text-lg" style="display:none">${initial}</div>` : `<div class="w-10 h-10 rounded-lg bg-primary-600 flex items-center justify-center text-white font-semibold text-lg">${initial}</div>`}</div>
