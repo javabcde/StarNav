@@ -50,9 +50,6 @@ function setStatus(message, type = 'info') {
   els.status.style.color = type === 'error' ? '#dc2626' : type === 'success' ? '#16a34a' : type === 'warning' ? '#d97706' : '#64748b';
 }
 
-function normalizeBaseUrl(value) {
-  return String(value || '').trim().replace(/\/+$/g, '');
-}
 
 async function restoreCachedExtensionIcon() {
   if (!chrome.action?.setIcon || !config.siteIcon) return false;
@@ -84,13 +81,12 @@ async function restoreCachedExtensionIcon() {
 }
 
 async function apiFetch(path, options = {}) {
-  const baseUrl = normalizeBaseUrl(config.baseUrl);
+  const baseUrl = Contract.normalizeBaseUrl(config.baseUrl);
   if (!baseUrl) throw new Error(`请先在设置中填写 ${config.siteName || 'StarNav'} 地址`);
   if (!config.token) throw new Error('请先在设置中填写 Bearer Token');
   return Contract.apiFetch(path, { baseUrl, token: config.token, ...options });
 }
 
-function escapeHTML(v) { return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 
 function renderDatalist(el, items, getValue) {
   el.innerHTML = '';
@@ -167,7 +163,7 @@ const ctx = {
   config: () => config,
   setStatus,
   apiFetch,
-  escapeHTML,
+  escapeHTML: Contract.escapeHTML,
   getActiveTab,
   // 收藏/同步成功后的浏览缓存刷新钩子（指向浏览视图内部实现，惰性求值）
   onCacheMutated: () => browseView.refreshAfterCacheMutation(),
@@ -205,7 +201,7 @@ els.tabSync.addEventListener('click', () => switchTab(els.tabSync));
 
 els.optionsBtn.addEventListener('click', () => chrome.runtime.openOptionsPage());
 els.openSiteBtn.addEventListener('click', async () => {
-  const baseUrl = normalizeBaseUrl(config.baseUrl);
+  const baseUrl = Contract.normalizeBaseUrl(config.baseUrl);
   if (!baseUrl) {
     setStatus('请先在设置中填写主站地址', 'error');
     return;

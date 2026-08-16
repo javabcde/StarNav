@@ -19,7 +19,7 @@ const exact = (path, method) => (p, m) => p === path && m === method;
 const anyMethodOn = (path) => (p) => p === path || p.startsWith(`${path}/`);
 const re = (pattern, method = null) => (p, m) => pattern.test(p) && (method === null || m === method);
 
-const ROUTES = [
+export const ROUTES = [
   // ── 公开端点（无需鉴权）──────────────────────────────
   [exact('/', 'GET'), (request, env, ctx, path, method, id, url) => jsonResponse(getPublicApiDiscovery(url.origin))],
   [exact('/discovery', 'GET'), (request, env, ctx, path, method, id, url) => jsonResponse(getPublicApiDiscovery(url.origin))],

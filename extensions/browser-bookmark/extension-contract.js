@@ -51,6 +51,10 @@
     return String(value || '').trim().replace(/\/+$/g, '');
   }
 
+  function escapeHTML(v) {
+    return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
   /**
    * 统一 API 客户端：拼 URL、鉴权头、可选超时、非 JSON 兜底。
    * !ok 时抛错并附带 error.status / error.data（错误文案：data.message || data.error || HTTP 状态）。
@@ -128,6 +132,7 @@
     ICON_FAILURE_REASONS,
     ICON_DEBUG_TTL_MS,
     normalizeBaseUrl,
+    escapeHTML,
     apiFetch,
     buildCollectPayload,
   };
