@@ -43,10 +43,10 @@ import { analyzeNoTagSites, analyzeDuplicateSites, analyzeSearchGaps, analyzeCat
 import { getSystemSettings, updateSystemSettings } from '../services/systemSettingsService.js';
 import {
   getPrivateBookmarkPassword,
-  hasPrivateBookmarkAccess,
   isPrivateBookmarkCategory,
   updatePrivateBookmarkPassword,
 } from '../services/privateBookmarkService.js';
+import { getAccessContext } from '../services/accessService.js';
 import {
   clearSiteLockPassword,
   isSiteLockEnabled,
@@ -68,20 +68,6 @@ function safeLog(ctx, promise) {
   }
 }
 
-/**
- * 读接口访问级别：管理员会话、有效 Bearer Token、私人书签 Cookie 任一即授予私人书签读取。
- * token 是密码级凭据（见 docs/adr/0002-token-private-bookmark-read.md）。
- */
-export async function getReadAccess(request, env) {
-  const adminAuthed = await isAdminAuthenticated(request, env);
-  if (adminAuthed) {
-    return { adminAuthed: true, tokenAuthenticated: true, privateAccess: true };
-  }
-  const tokenAuth = await validateApiToken(request, env, '');
-  const tokenAuthenticated = Boolean(tokenAuth?.authenticated);
-  const privateAccess = tokenAuthenticated || (await hasPrivateBookmarkAccess(request, env));
-  return { adminAuthed: false, tokenAuthenticated, privateAccess };
-}
 
 export async function handleApiRequest(request, env, ctx) {
   const url = new URL(request.url);
@@ -207,17 +193,17 @@ export async function handleApiRequest(request, env, ctx) {
     }
 
     if (path === '/usage-sites' && method === 'GET') {
-      const { adminAuthed, privateAccess } = await getReadAccess(request, env);
+      const access = await getAccessContext(request, env);
       const ids = (url.searchParams.get('ids') || '').split(',').map((v) => v.trim()).filter(Boolean).map(Number);
-      const data = await listSitesByIds(env, ids, { includePrivate: privateAccess, adminAuthed, privateUnlocked: privateAccess });
+      const data = await listSitesByIds(env, ids, { access });
       return jsonResponse({ code: 200, data });
     }
 
     if (path === '/search' && method === 'GET') {
       const keyword = url.searchParams.get('q') || url.searchParams.get('keyword') || '';
       const limit = url.searchParams.get('limit') || 50;
-      const { adminAuthed, privateAccess } = await getReadAccess(request, env);
-      const data = await searchSites(env, { keyword, limit, includePrivate: privateAccess, adminAuthed, privateUnlocked: privateAccess });
+      const access = await getAccessContext(request, env);
+      const data = await searchSites(env, { keyword, limit, access });
       const recordTask = recordSearchTerm(env, keyword, data.length).catch((error) => console.warn(`[search] failed to record keyword: ${error.message}`));
       if (ctx?.waitUntil) ctx.waitUntil(recordTask);
       else await recordTask;
@@ -226,12 +212,11 @@ export async function handleApiRequest(request, env, ctx) {
 
     if (path === '/ai/chat' && method === 'POST') {
       const body = await request.json();
-      const { adminAuthed, privateAccess } = await getReadAccess(request, env);
+      const access = await getAccessContext(request, env);
       const result = await chatWithAiAssistant(env, request, {
         message: body?.message,
         previousSites: body?.previousSites || body?.contextSites || [],
-        adminAuthed,
-        privateUnlocked: privateAccess,
+        access,
       });
       return jsonResponse(result);
     }
@@ -261,15 +246,15 @@ export async function handleApiRequest(request, env, ctx) {
       const tag = url.searchParams.get('tag') || '';
       const sort = url.searchParams.get('sort') || '';
       const health = url.searchParams.get('health') || '';
-      const { adminAuthed, privateAccess } = await getReadAccess(request, env);
+      const access = await getAccessContext(request, env);
 
-      if (isPrivateBookmarkCategory(catalog) && !privateAccess) {
+      if (isPrivateBookmarkCategory(catalog) && !access.privateUnlocked) {
         return errorResponse('Private bookmarks require access password', 401);
       }
 
       const space = url.searchParams.get('space') || '';
       const all = url.searchParams.get('all') === '1';
-      const result = await getSites(env, { page, pageSize, catalog, keyword, tag, sort, health, space, all, includePrivate: privateAccess, adminAuthed, privateUnlocked: privateAccess });
+      const result = await getSites(env, { page, pageSize, catalog, keyword, tag, sort, health, space, all, access });
       return jsonResponse({ code: 200, ...result });
     }
     if (isSitesCollectionPath && method === 'POST') {

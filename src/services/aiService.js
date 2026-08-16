@@ -1,7 +1,8 @@
 import { cleanText } from '../lib/utils.js';
 import { decryptSecret, encryptSecret } from '../lib/crypto.js';
 import { getSetting, setSetting } from './settingsService.js';
-import { canAccessSite, getSite, searchSites, getSiteAnalytics } from './siteService.js';
+import { getSite, searchSites, getSiteAnalytics } from './siteService.js';
+import { canAccessSite } from './accessService.js';
 import { listCategories } from './categoryService.js';
 import { listTags } from './tagService.js';
 
@@ -225,8 +226,7 @@ function inferSearchKeywords(message) {
 
 async function searchExpandedSites(env, {
   message,
-  adminAuthed = false,
-  privateUnlocked = false,
+  access = null,
   limit = 16,
 } = {}) {
   const keywords = inferSearchKeywords(message);
@@ -238,9 +238,7 @@ async function searchExpandedSites(env, {
       results = await searchSites(env, {
         keyword,
         limit: Math.max(8, limit),
-        includePrivate: privateUnlocked,
-        adminAuthed,
-        privateUnlocked,
+        access,
       });
     } catch (error) {
       console.warn(`[ai] skip failed bookmark search keyword="${String(keyword).slice(0, 40)}": ${error.message}`);
@@ -337,7 +335,7 @@ function filterSitesByContainsKeyword(sites = [], keyword = '') {
   return sites.filter((site) => siteContainsKeyword(site, term));
 }
 
-async function resolveContextSites(env, previousSites = [], { adminAuthed = false, privateUnlocked = false } = {}) {
+async function resolveContextSites(env, previousSites = [], access = null) {
   const ids = Array.isArray(previousSites)
     ? [...new Set(previousSites.map((site) => Number(site?.id)).filter((id) => Number.isInteger(id) && id > 0))].slice(0, 5)
     : [];
@@ -346,7 +344,8 @@ async function resolveContextSites(env, previousSites = [], { adminAuthed = fals
   const sites = [];
   for (const id of ids) {
     const site = await getSite(env, id);
-    if (site && canAccessSite(site, { adminAuthed, privateUnlocked })) {
+
+    if (site && canAccessSite(site, access || {})) {
       sites.push(site);
     }
   }
@@ -1026,12 +1025,12 @@ export async function analyzeCategoryErrors(env, { limit = 20 } = {}) {
   return { type: 'category-errors', totalOrphaned: orphaned.length, orphaned: orphaned.slice(0, safeLimit), suggestions, aiEnabled };
 }
 
-export async function chatWithAiAssistant(env, request, { message, previousSites = [], adminAuthed = false, privateUnlocked = false } = {}) {
+export async function chatWithAiAssistant(env, request, { message, previousSites = [], access = null } = {}) {
   const cleanMessage = cleanText(message);
   if (!cleanMessage) throw new Error('Message is required');
 
   const intent = detectBookmarkIntent(cleanMessage);
-  const contextSites = await resolveContextSites(env, previousSites, { adminAuthed, privateUnlocked });
+  const contextSites = await resolveContextSites(env, previousSites, access);
   let sites = [];
 
   // 统计型问题：访问最多、最热门、排行等
@@ -1065,8 +1064,7 @@ export async function chatWithAiAssistant(env, request, { message, previousSites
     sites = await searchExpandedSites(env, {
       message: cleanMessage,
       limit: (intent.asksList || intent.containsKeyword) ? 30 : 16,
-      adminAuthed,
-      privateUnlocked,
+      access,
     });
   }
 

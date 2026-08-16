@@ -4,7 +4,7 @@ import { getSettingRecord, setSetting } from './settingsService.js';
 
 export const PRIVATE_BOOKMARK_CATEGORY = '私人书签';
 
-const PRIVATE_ACCESS_COOKIE_NAME = 'nav_private_bookmarks_access';
+export const PRIVATE_ACCESS_COOKIE_NAME = 'nav_private_bookmarks_access';
 const PRIVATE_ACCESS_TTL_SECONDS = 60 * 60 * 12;
 const PRIVATE_ACCESS_TTL_OPTIONS = {
   session: 60 * 60 * 24,

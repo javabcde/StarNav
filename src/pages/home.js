@@ -1,7 +1,7 @@
-import { isAdminAuthenticated } from '../lib/auth.js';
 import { escapeHTML, htmlResponse, isSubmissionEnabled, sanitizeImageUrl, sanitizeUrl } from '../lib/utils.js';
 import { resolveI18n } from '../lib/i18n.js';
-import { canListSite, getAllSites } from '../services/siteService.js';
+import { getAllSites } from '../services/siteService.js';
+import { getAccessContext } from '../services/accessService.js';
 import { getCategoryTree } from '../services/categoryService.js';
 import { getSystemSettings } from '../services/systemSettingsService.js';
 import {
@@ -9,7 +9,6 @@ import {
   buildClearPrivateBookmarkAccessCookie,
   buildPrivateBookmarkAccessCookie,
   createPrivateBookmarkAccess,
-  hasPrivateBookmarkAccess,
   isPrivateBookmarkCategory,
   revokeCurrentPrivateBookmarkAccess,
   verifyPrivateBookmarkPassword,
@@ -53,13 +52,16 @@ export async function renderHomePage(request, env, ctx) {
   const sortMode = ['hot', 'recent'].includes(requestedSort) ? requestedSort : '';
   const tagFilter = (url.searchParams.get('tag') || '').trim();
   const isPrivateCatalog = isPrivateBookmarkCategory(catalog);
-  const [adminAuthed, visitorPrivateAccess, systemSettings] = await Promise.all([
-    isAdminAuthenticated(request, env),
-    hasPrivateBookmarkAccess(request, env),
+  const [access, systemSettings] = await Promise.all([
+    getAccessContext(request, env),
     getSystemSettings(env),
   ]);
+  const adminAuthed = access.adminAuthed;
+  // 页面语义：token 不授予私人书签（browserPrivateUnlocked，与迁移前一致）
+  const privateUnlocked = access.browserPrivateUnlocked;
   const currentSpaceSlug = '';
   const [sites, categoryTree] = await Promise.all([
+
     getAllSites(env),
     getCategoryTree(env),
   ]);
@@ -97,8 +99,7 @@ export async function renderHomePage(request, env, ctx) {
     return renderPrivateBookmarkPasswordPage({ catalog, error: t('passwordError'), i18n });
   }
 
-  const privateUnlocked = adminAuthed || visitorPrivateAccess;
-  const visibleSites = sites.filter((site) => canListSite(site, { adminAuthed, privateUnlocked }));
+  const visibleSites = sites.filter((site) => access.canList(site));
   const flatCategories = flattenCategories(categoryTree);
   const categoryNames = flatCategories.map((item) => item.name);
   const datalistCategoryNames = categoryNames.filter((name) => !isPrivateBookmarkCategory(name));
@@ -258,9 +259,8 @@ export async function renderHomePage(request, env, ctx) {
         <a href="${escapeHTML(allLinkHref)}" class="category-all-button flex items-center px-3 py-2 rounded-lg w-full">${th('all')}</a>
         ${categoryLinks}
       </div>
-      <div class="mt-8 pt-6 border-t border-gray-200">
+        ${privateUnlocked && !adminAuthed ? `<form method="post" action="/" class="mt-3"><input type="hidden" name="_action" value="logout-private"><button type="submit" class="w-full rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100">${th('exitPrivate')}</button></form>` : ''}
         ${submissionEnabled ? `<button id="addSiteBtnSidebar" class="w-full px-4 py-2 bg-accent-500 text-white rounded-lg">${th('addBookmark')}</button>` : `<div class="text-xs text-primary-600 border rounded-lg p-3">${th('submissionClosed')}</div>`}
-        ${visitorPrivateAccess && !adminAuthed ? `<form method="post" action="/" class="mt-3"><input type="hidden" name="_action" value="logout-private"><button type="submit" class="w-full rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100">${th('exitPrivate')}</button></form>` : ''}
         ${blogLink}
         <a href="/admin" target="_blank" class="mt-4 flex items-center justify-between gap-3 px-4 py-2 text-gray-600 hover:text-primary-500 transition duration-300">
           <span class="flex min-w-0 items-center">

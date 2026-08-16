@@ -12,21 +12,15 @@ import {
   registerSiteLockFailure,
   verifySiteLockPassword,
 } from '../services/siteLockService.js';
+import { isSiteLockAllowlisted } from '../services/accessService.js';
+export { isSiteLockAllowlisted } from '../services/accessService.js';
 
 /**
  * 整站锁白名单：这些路由在锁启用时仍可匿名访问。
- * PWA 静态资源无需在此列出——handlePwaRequest 在 routeRequest 中先于本 handler 执行。
- *
- * @param {string} path URL pathname。
- * @param {string} method HTTP 方法。
- * @returns {boolean} 是否白名单路由。
+ * 策略已收归 src/services/accessService.js（docs/adr/0003）；本 handler 只负责
+ * 把策略翻译成 HTTP 呈现（302 / 403 / 锁页）。
  */
-export function isSiteLockAllowlisted(path, method) {
-  if (path === '/admin' && (method === 'GET' || method === 'POST')) return true;
-  if (path.startsWith('/static/')) return true;
-  if (path === '/api/settings/public' && method === 'GET') return true;
-  return false;
-}
+
 
 /**
  * 整站锁请求拦截。返回：

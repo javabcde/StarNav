@@ -1,7 +1,6 @@
-import { isAdminAuthenticated } from '../lib/auth.js';
 import { errorResponse, sanitizeUrl } from '../lib/utils.js';
-import { canAccessSite, ensureSiteFavicon, getSite, incrementSiteHits } from '../services/siteService.js';
-import { hasPrivateBookmarkAccess } from '../services/privateBookmarkService.js';
+import { ensureSiteFavicon, getSite, incrementSiteHits } from '../services/siteService.js';
+import { getAccessContext } from '../services/accessService.js';
 
 export async function handleGoRequest(request, env, ctx) {
   const url = new URL(request.url);
@@ -12,9 +11,8 @@ export async function handleGoRequest(request, env, ctx) {
   const site = await getSite(env, id);
   if (!site) return errorResponse('Site not found', 404);
 
-  const adminAuthed = await isAdminAuthenticated(request, env);
-  const privateAccess = adminAuthed || await hasPrivateBookmarkAccess(request, env);
-  if (!canAccessSite(site, { adminAuthed, privateUnlocked: privateAccess })) {
+  const access = await getAccessContext(request, env);
+  if (!access.canAccess(site)) {
     // 对无权访问的书签返回 404（与"不存在"一致），避免通过 302 跳转 + 分类名泄露受限书签的存在性。
     // 受限书签本就不会出现在无权用户的页面链接里，因此这对正常访问无影响，仅堵住按 ID 枚举的探测。
     return errorResponse('Site not found', 404);

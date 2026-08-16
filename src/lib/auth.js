@@ -1,4 +1,4 @@
-const SESSION_COOKIE_NAME = 'nav_admin_session';
+export const SESSION_COOKIE_NAME = 'nav_admin_session';
 const SESSION_PREFIX = 'session:';
 const API_TOKEN_PREFIX = 'api_token:';
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
@@ -311,6 +311,27 @@ export async function revokeApiToken(env, id) {
   return sanitizeApiTokenRecord(record);
 }
 
+
+/**
+ * 判断 token scope 数组是否满足所需权限。
+ *
+ * `admin` 覆盖一切；`write:sites` / `read:sites` 可满足对应 `write` / `read`；
+ * 细粒度 `write:*` / `read:*` 要求由宽 scope 满足。空 requiredScope 表示任意 token 均可。
+ *
+ * @param {string[]} scopes token 的 scope 列表。
+ * @param {ApiTokenScope|string} [requiredScope] 所需权限范围。
+ * @returns {boolean}
+ */
+export function tokenHasScope(scopes, requiredScope) {
+  if (!requiredScope) return true;
+  if (scopes.includes('admin') || scopes.includes(requiredScope)) return true;
+  if (requiredScope === 'write' && (scopes.includes('write:sites') || scopes.includes('write'))) return true;
+  if (requiredScope === 'read' && (scopes.includes('read:sites') || scopes.includes('read'))) return true;
+  if (requiredScope.startsWith('write:') && scopes.includes('write')) return true;
+  if (requiredScope.startsWith('read:') && scopes.includes('read')) return true;
+  return false;
+}
+
 /**
  * 校验请求中的 Bearer API Token。
  *
@@ -345,18 +366,7 @@ export async function validateApiToken(request, env, requiredScope = 'write') {
     }
 
     const scopes = normalizeTokenScopes(record.scopes);
-    let hasPermission = scopes.includes('admin') || (requiredScope && scopes.includes(requiredScope));
-    if (!hasPermission && requiredScope) {
-      if (requiredScope === 'write' && (scopes.includes('write:sites') || scopes.includes('write'))) {
-        hasPermission = true;
-      } else if (requiredScope === 'read' && (scopes.includes('read:sites') || scopes.includes('read'))) {
-        hasPermission = true;
-      } else if (requiredScope.startsWith('write:') && scopes.includes('write')) {
-        hasPermission = true;
-      } else if (requiredScope.startsWith('read:') && scopes.includes('read')) {
-        hasPermission = true;
-      }
-    }
+    const hasPermission = tokenHasScope(scopes, requiredScope);
 
     if (requiredScope && !hasPermission) {
       return { authenticated: false, forbidden: true, token: sanitizeApiTokenRecord(record) };

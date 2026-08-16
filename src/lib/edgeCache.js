@@ -4,13 +4,13 @@
 // 因此渲染输出不含任何 per-user 个性化内容，可在边缘对所有访客安全共享。
 // 带登录态或私人解锁或整站锁解锁 cookie 的请求一律不缓存，杜绝把个性化视图泄露给他人。
 //
-// 整站锁 cookie 必须留在这份名单里：否则"已解锁访客"的个性化首页会进入共享缓存，
-// 被后续"未解锁访客"的匿名请求命中——整站锁形同虚设（硬约束，勿删）。
+// 鉴权 cookie 名单收归 src/services/accessService.js（isCacheableHomeRequest）——
+// 新增鉴权 cookie 只改那里，本模块零感知（决策见 docs/adr/0003）。
+import { isCacheableHomeRequest } from '../services/accessService.js';
 
-const SESSION_COOKIE_NAME = 'nav_admin_session';
-const PRIVATE_ACCESS_COOKIE_NAME = 'nav_private_bookmarks_access';
-const SITE_LOCK_COOKIE_NAME = 'nav_site_lock';
+// 影响渲染输出但非鉴权的维度仍由本模块纳入缓存键。
 const LANGUAGE_COOKIE = 'nav_lang';
+
 
 // 边缘缓存 60s，浏览器不缓存（max-age=0）以便始终回源命中最新的边缘副本。
 const HOME_CACHE_CONTROL = 'public, max-age=0, s-maxage=60';
@@ -37,14 +37,13 @@ export function buildHomeCacheKey(request) {
   } catch {
     return null;
   }
+  const cookies = parseCookieHeader(request.headers.get('Cookie') || '');
   if (request.method !== 'GET') return null;
   if (url.pathname !== '/') return null;
-  // Service Worker 的强制刷新请求绕过缓存。
+  // 任一鉴权相关 cookie 存在 → 个性化请求，不缓存（策略归 accessService，硬约束见该模块）。
+  if (!isCacheableHomeRequest(request)) return null;
   if (url.searchParams.has('__refresh')) return null;
 
-  const cookies = parseCookieHeader(request.headers.get('Cookie') || '');
-  // 任一鉴权相关 cookie 存在 → 视为个性化请求，不缓存。
-  if (cookies[SESSION_COOKIE_NAME] || cookies[PRIVATE_ACCESS_COOKIE_NAME] || cookies[SITE_LOCK_COOKIE_NAME]) return null;
 
   // 影响渲染输出的维度纳入缓存键：语言 + 分类 / 排序 / 标签筛选。
   const lang = url.searchParams.get('lang') || cookies[LANGUAGE_COOKIE] || '';

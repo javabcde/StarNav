@@ -5,6 +5,9 @@ import { upsertCategoryByName } from './categoryService.js';
 import { PRIVATE_BOOKMARK_CATEGORY } from './privateBookmarkService.js';
 import { resolveSpaceId } from './spaceService.js';
 import { attachTagsToSites, normalizeTags, setSiteTags } from './tagService.js';
+import { canAccessSite, canListSite, isPrivateSite, normalizeVisibility, SITE_VISIBILITIES } from './accessService.js';
+// 可见性规则已迁入 accessService（docs/adr/0003）；re-export 保持存量测试 import 面。
+export { canAccessSite, canListSite, isPrivateSite, normalizeVisibility, SITE_VISIBILITIES } from './accessService.js';
 
 /**
  * @typedef {'public' | 'private' | 'unlisted' | 'admin_only'} SiteVisibility
@@ -31,11 +34,6 @@ import { attachTagsToSites, normalizeTags, setSiteTags } from './tagService.js';
  * @property {string[]} [tags]
  */
 
-/**
- * @typedef {object} SiteAccessOptions
- * @property {boolean} [adminAuthed=false] 是否已通过后台管理员 cookie 鉴权。
- * @property {boolean} [privateUnlocked=false] 是否已解锁私密书签访问态。
- */
 
 /**
  * @typedef {object} SitePayload
@@ -53,65 +51,6 @@ import { attachTagsToSites, normalizeTags, setSiteTags } from './tagService.js';
  * @property {string[]|string} [tag_names]
  */
 
-export const SITE_VISIBILITIES = ['public', 'private', 'unlisted', 'admin_only'];
-
-/**
- * 将外部输入规范化为站点可见性枚举。
- *
- * 私密书签分类会自动回退为 `private`，其他非法值默认回退为 `public`。
- *
- * @param {unknown} value 原始可见性输入。
- * @param {unknown} [catelog=''] 分类名称，用于兼容私密书签旧数据。
- * @returns {SiteVisibility}
- */
-export function normalizeVisibility(value, catelog = '') {
-  const visibility = cleanText(value).toLowerCase();
-  if (SITE_VISIBILITIES.includes(visibility)) return visibility;
-  return cleanText(catelog) === PRIVATE_BOOKMARK_CATEGORY ? 'private' : 'public';
-}
-
-/**
- * 判断站点是否属于私密书签。
- *
- * @param {SiteRecord|null|undefined} site 站点记录。
- * @returns {boolean}
- */
-export function isPrivateSite(site) {
-  return normalizeVisibility(site?.visibility, site?.catelog) === 'private' || cleanText(site?.catelog) === PRIVATE_BOOKMARK_CATEGORY;
-}
-
-/**
- * 判断当前访问上下文是否允许查看站点详情。
- *
- * `unlisted` 允许知道直链时访问，`admin_only` 仅管理员可访问，`private` 需要私密访问态。
- *
- * @param {SiteRecord|null|undefined} site 站点记录。
- * @param {SiteAccessOptions} [options] 访问上下文。
- * @returns {boolean}
- */
-export function canAccessSite(site, { adminAuthed = false, privateUnlocked = false } = {}) {
-  const visibility = normalizeVisibility(site?.visibility, site?.catelog);
-  if (adminAuthed) return true;
-  if (visibility === 'admin_only') return false;
-  if (visibility === 'private' || cleanText(site?.catelog) === PRIVATE_BOOKMARK_CATEGORY) return privateUnlocked;
-  return true;
-}
-
-/**
- * 判断站点是否可出现在公开列表 / 搜索结果中。
- *
- * 与 `canAccessSite` 的区别是：`unlisted` 不进入列表，但仍可在已知直链场景下访问。
- *
- * @param {SiteRecord|null|undefined} site 站点记录。
- * @param {SiteAccessOptions} [options] 访问上下文。
- * @returns {boolean}
- */
-export function canListSite(site, { adminAuthed = false, privateUnlocked = false } = {}) {
-  const visibility = normalizeVisibility(site?.visibility, site?.catelog);
-  if (adminAuthed) return true;
-  if (visibility === 'unlisted' || visibility === 'admin_only') return false;
-  return canAccessSite(site, { adminAuthed, privateUnlocked });
-}
 
 function parseStoredTags(value) {
   if (Array.isArray(value)) return normalizeTags(value);
@@ -431,12 +370,14 @@ function normalizeSitePayload(config) {
  * @param {string} [options.tag=''] 标签名称。
  * @param {string} [options.sort=''] 排序方式，`manual` 表示按手动排序。
  * @param {'ok'|'bad'|'unknown'|string} [options.health=''] 健康状态过滤。
+ * @param {object} [options.access=null] 访问上下文（docs/adr/0003）；传入时优先于下方三个布尔选项。
  * @param {boolean} [options.includePrivate=true] 是否包含私密站点候选。
  * @param {boolean} [options.adminAuthed=false] 是否管理员访问。
  * @param {boolean} [options.privateUnlocked=options.includePrivate] 是否已解锁私密书签。
  * @returns {Promise<{data: SiteRecord[], total: number, page: number, pageSize: number}>}
  */
-export async function getSites(env, { page = 1, pageSize = 10, catalog = '', keyword = '', tag = '', sort = '', health = '', space = '', space_id = null, all = false, includePrivate = true, adminAuthed = false, privateUnlocked = includePrivate } = {}) {
+export async function getSites(env, { page = 1, pageSize = 10, catalog = '', keyword = '', tag = '', sort = '', health = '', space = '', space_id = null, all = false, includePrivate = true, adminAuthed = false, privateUnlocked = includePrivate, access = null } = {}) {
+  const resolvedAccess = access || { adminAuthed, privateUnlocked };
   const safePage = Math.max(1, Number(page) || 1);
   const safePageSize = Math.max(1, Math.min(100, Number(pageSize) || 10));
   const offset = (safePage - 1) * safePageSize;
@@ -506,9 +447,8 @@ export async function getSites(env, { page = 1, pageSize = 10, catalog = '', key
   } else if (healthFilter === 'unknown') {
     where.push("s.last_checked_at IS NULL");
   }
-
-  if (!adminAuthed) {
-    if (privateUnlocked) {
+  if (!resolvedAccess.adminAuthed) {
+    if (resolvedAccess.privateUnlocked) {
       where.push("COALESCE(s.visibility, 'public') IN ('public', 'private')");
     } else {
       where.push("COALESCE(s.visibility, 'public') = 'public' AND COALESCE(c.name, s.catelog) <> ?");
@@ -560,8 +500,7 @@ export async function getSites(env, { page = 1, pageSize = 10, catalog = '', key
     fallbackBinds.push(fallbackLikeKeyword, fallbackLikeKeyword, fallbackLikeKeyword);
   }
 
-  // 降级分支同样保护私人书签可见性：未解锁访客不应看到私人书签分类（与主查询、搜索降级保持一致）
-  if (!adminAuthed && !privateUnlocked) {
+  if (!resolvedAccess.adminAuthed && !resolvedAccess.privateUnlocked) {
     fallbackWhere.push('s.catelog <> ?');
     fallbackBinds.push(PRIVATE_BOOKMARK_CATEGORY);
   }
@@ -866,14 +805,15 @@ export async function getSearchAnalytics(env, { limit = 20 } = {}) {
  * 按 ID 批量读取站点摘要（供“我的常用”模块按需拉取，替代首页全量内联索引）。
  * 可见性过滤与 searchSites 一致：未解锁访客拿不到 private/admin_only/unlisted 与私密分类。
  */
-export async function listSitesByIds(env, ids = [], { includePrivate = false, adminAuthed = false, privateUnlocked = includePrivate } = {}) {
+export async function listSitesByIds(env, ids = [], { includePrivate = false, adminAuthed = false, privateUnlocked = includePrivate, access = null } = {}) {
+  const resolvedAccess = access || { adminAuthed, privateUnlocked };
   const cleanIds = [...new Set(ids.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))].slice(0, 50);
   if (!cleanIds.length) return [];
 
   const where = [`s.id IN (${cleanIds.map(() => '?').join(', ')})`];
   const binds = [...cleanIds];
-  if (!adminAuthed) {
-    if (privateUnlocked) {
+  if (!resolvedAccess.adminAuthed) {
+    if (resolvedAccess.privateUnlocked) {
       where.push("COALESCE(s.visibility, 'public') IN ('public', 'private')");
     } else {
       where.push("COALESCE(s.visibility, 'public') = 'public' AND COALESCE(c.name, s.catelog) <> ?");
@@ -904,7 +844,8 @@ export async function listSitesByIds(env, ids = [], { includePrivate = false, ad
 /**
  * 全站搜索：关键词 + 高级筛选（tag:/cat:/url:/vis:），支持私密书签可见性。
  */
-export async function searchSites(env, { keyword = '', limit = 50, includePrivate = false, adminAuthed = false, privateUnlocked = includePrivate } = {}) {
+export async function searchSites(env, { keyword = '', limit = 50, includePrivate = false, adminAuthed = false, privateUnlocked = includePrivate, access = null } = {}) {
+  const resolvedAccess = access || { adminAuthed, privateUnlocked };
   const query = parseSearchQuery(keyword);
   const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50));
   if (!query.raw && !query.terms.length && !Object.values(query.filters).some((value) => Array.isArray(value) ? value.length : value)) return [];
@@ -944,8 +885,8 @@ export async function searchSites(env, { keyword = '', limit = 50, includePrivat
     where.push("(s.last_error IS NULL AND s.last_status_code >= 200 AND s.last_status_code < 400)");
   }
 
-  if (!adminAuthed) {
-    if (privateUnlocked) {
+  if (!resolvedAccess.adminAuthed) {
+    if (resolvedAccess.privateUnlocked) {
       where.push("COALESCE(s.visibility, 'public') IN ('public', 'private')");
     } else {
       where.push("COALESCE(s.visibility, 'public') = 'public' AND COALESCE(c.name, s.catelog) <> ?");
@@ -982,7 +923,7 @@ export async function searchSites(env, { keyword = '', limit = 50, includePrivat
       fallbackBinds.push(rawLike, rawLike, rawLike, rawLike);
     }
 
-    if (!adminAuthed && !privateUnlocked) {
+    if (!resolvedAccess.adminAuthed && !resolvedAccess.privateUnlocked) {
       fallbackWhere.push('s.catelog <> ?');
       fallbackBinds.push(PRIVATE_BOOKMARK_CATEGORY);
     }
@@ -1039,8 +980,8 @@ export async function searchSites(env, { keyword = '', limit = 50, includePrivat
       fallbackWhere.push("(s.last_error IS NULL AND s.last_status_code >= 200 AND s.last_status_code < 400)");
     }
 
-    if (!adminAuthed) {
-      if (privateUnlocked) {
+    if (!resolvedAccess.adminAuthed) {
+      if (resolvedAccess.privateUnlocked) {
         fallbackWhere.push("COALESCE(s.visibility, 'public') IN ('public', 'private')");
       } else {
         fallbackWhere.push("COALESCE(s.visibility, 'public') = 'public' AND COALESCE(c.name, s.catelog) <> ?");

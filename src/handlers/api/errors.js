@@ -1,34 +1,24 @@
 import { conflict, errorResponse, forbidden, jsonResponse, unauthorized } from '../../lib/utils.js';
-import { hasBearerToken, isAdminAuthenticated, validateApiToken } from '../../lib/auth.js';
+import { hasBearerToken, tokenHasScope } from '../../lib/auth.js';
+import { getAccessContext } from '../../services/accessService.js';
 
 export async function requireAdmin(request, env, options = {}) {
   const { allowApiToken = false, scope = 'write' } = options;
+  const access = await getAccessContext(request, env);
 
+  // 弱 token + admin cookie → 403 的既有优先级保持：token 存在但 scope 不足时
+  // 先于 admin 会话判定短路（与迁移前 validateApiToken 行为一致）。
   if (allowApiToken && hasBearerToken(request)) {
-    const tokenAuth = await validateApiToken(request, env, scope);
-    if (tokenAuth.authenticated) return null;
-    if (tokenAuth.forbidden) {
+    if (access.tokenAuthenticated) {
+      if (tokenHasScope(access.tokenScopes, scope)) return null;
       return forbidden('API token scope is insufficient', {
         requiredScope: scope,
-        tokenScopes: tokenAuth.token?.scopes || [],
+        tokenScopes: access.tokenScopes,
       });
     }
   }
 
-  if (await isAdminAuthenticated(request, env)) {
-    return null;
-  }
-
-  if (allowApiToken && !hasBearerToken(request)) {
-    const tokenAuth = await validateApiToken(request, env, scope);
-    if (tokenAuth.authenticated) return null;
-    if (tokenAuth.forbidden) {
-      return forbidden('API token scope is insufficient', {
-        requiredScope: scope,
-        tokenScopes: tokenAuth.token?.scopes || [],
-      });
-    }
-  }
+  if (access.adminAuthed) return null;
 
   return unauthorized(allowApiToken ? 'Admin cookie or Bearer token is required' : 'Admin authentication is required', {
     allowApiToken,

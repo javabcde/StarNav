@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { getReadAccess } from '../src/handlers/api.js';
+import { getAccessContext } from '../src/services/accessService.js';
 import {
   createPrivateBookmarkAccess,
   buildPrivateBookmarkAccessCookie,
@@ -59,33 +59,33 @@ function seedApiToken(kv, { token, revoked = false } = {}) {
 
 test('无凭据：privateAccess 为 false', async () => {
   const { navAuth } = createKvMock();
-  const access = await getReadAccess(req(), { NAV_AUTH: navAuth });
+  const access = await getAccessContext(req(), { NAV_AUTH: navAuth });
   assert.equal(access.adminAuthed, false);
   assert.equal(access.tokenAuthenticated, false);
-  assert.equal(access.privateAccess, false);
+  assert.equal(access.privateUnlocked, false);
 });
 
 test('有效 Bearer Token：privateAccess 为 true（token 即密码级凭据）', async () => {
   const { navAuth, kv } = createKvMock();
   const token = seedApiToken(kv);
-  const access = await getReadAccess(req({ Authorization: `Bearer ${token}` }), { NAV_AUTH: navAuth });
+  const access = await getAccessContext(req({ Authorization: `Bearer ${token}` }), { NAV_AUTH: navAuth });
   assert.equal(access.tokenAuthenticated, true);
-  assert.equal(access.privateAccess, true);
+  assert.equal(access.privateUnlocked, true);
 });
 
 test('已吊销 Token：privateAccess 为 false', async () => {
   const { navAuth, kv } = createKvMock();
   const token = seedApiToken(kv, { revoked: true });
-  const access = await getReadAccess(req({ Authorization: `Bearer ${token}` }), { NAV_AUTH: navAuth });
+  const access = await getAccessContext(req({ Authorization: `Bearer ${token}` }), { NAV_AUTH: navAuth });
   assert.equal(access.tokenAuthenticated, false);
-  assert.equal(access.privateAccess, false);
+  assert.equal(access.privateUnlocked, false);
 });
 
 test('私人书签 Cookie：privateAccess 为 true', async () => {
   const { navAuth } = createKvMock();
   const created = await createPrivateBookmarkAccess({ NAV_AUTH: navAuth }, { duration: '1h' });
   const cookie = buildPrivateBookmarkAccessCookie(created.token, { maxAge: 3600 });
-  const access = await getReadAccess(req({ Cookie: cookie }), { NAV_AUTH: navAuth });
-  assert.equal(access.privateAccess, true);
+  const access = await getAccessContext(req({ Cookie: cookie }), { NAV_AUTH: navAuth });
+  assert.equal(access.privateUnlocked, true);
   assert.equal(access.tokenAuthenticated, false);
 });
