@@ -120,3 +120,14 @@ test('adminJs 顶部内联 esbuild 助手垫片（wrangler keepNames 打包后 t
   assert.ok(adminJs.includes(shim), 'adminJs 缺少 __name/__defProp 垫片——wrangler 部署后浏览器端 ReferenceError: __name is not defined');
   assert.ok(adminJs.indexOf(shim) < adminJs.indexOf('const escapeHTML='), '垫片须位于全部 toString 内联函数之前');
 });
+
+test('adminJs 模板完整性：引用的 UPPER_SNAKE 常量均有定义（IS_DEAD_SITE/IS_UNKNOWN_SITE 回归锁）', () => {
+  const re = /[A-Z][A-Z0-9_]*_[A-Z0-9_]+/g;
+  const used = new Set();
+  let m;
+  while ((m = re.exec(adminJs))) used.add(m[0]);
+  const missing = [...used].filter((id) => !new RegExp(`(const|let|var) ${id}\\s*=`).test(adminJs));
+  assert.deepEqual(missing, [], '模板引用了未定义的常量——收编时漏内联（2026-08-16 曾删掉 IS_DEAD_SITE/IS_UNKNOWN_SITE 致后台书签列表 ReferenceError）');
+  assert.ok(adminJs.includes('const IS_DEAD_SITE='), 'IS_DEAD_SITE 内联必须存在');
+  assert.ok(adminJs.includes('const IS_UNKNOWN_SITE='), 'IS_UNKNOWN_SITE 内联必须存在');
+});

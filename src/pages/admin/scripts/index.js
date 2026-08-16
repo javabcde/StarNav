@@ -16,6 +16,7 @@ import {
   syncStatPill,
   webdavStatusText,
 } from '../../clientLogic.js';
+import { isDeadSite, isUnknownSite } from '../../../services/healthQuery.js';
 
 export const adminJs = `
 // 客户端纯逻辑单一源：经 ../clientLogic.js toString() 生成期内联（2026-08-16 架构评审候选 2），
@@ -23,6 +24,8 @@ export const adminJs = `
 // wrangler 部署打包（esbuild keepNames）会把具名嵌套箭头改写为 __name(...) 包裹表达式，
 // toString() 内联的是打包后源码——垫片保证浏览器端 __name/__defProp 有定义（2026-08-16 修复）。
 var __defProp=Object.defineProperty;var __name=(t,v)=>__defProp(t,"name",{value:v,configurable:true});
+const IS_DEAD_SITE=${isDeadSite.toString()};
+const IS_UNKNOWN_SITE=${isUnknownSite.toString()};
 const escapeHTML=${escapeText.toString()};
 const apiJson=${apiJson.toString()};
 const normalizeUrl=${normalizeClientUrl.toString()};
