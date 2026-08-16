@@ -1,5 +1,15 @@
 import { escapeHTML, htmlResponse } from '../../lib/utils.js';
 import { homeCssVersion } from './css.js';
+import { siteLockDurationOptions } from '../../services/siteLockService.js';
+
+// 时长 `<select>` 渲染自解锁会话词汇（unlockSessionService.durationOptions）：
+// 键/顺序/默认档位单一来源；本页面的文案差异（session 后缀）属呈现层。
+function renderDurationOptions(options) {
+  return options.map((opt) => {
+    const label = opt.key === 'session' ? `${opt.label}（关闭浏览器后失效）` : opt.label;
+    return `<option value="${opt.key}"${opt.default ? ' selected' : ''}>${label}</option>`;
+  }).join('');
+}
 
 /**
  * 整站锁全屏密码页。复用 renderPrivateBookmarkPasswordPage 的渲染模式
@@ -40,11 +50,7 @@ export function renderSiteLockPage({ next = '', error = '', i18n } = {}) {
       <label class="block text-left text-xs text-slate-600">
         <span class="mb-1 block">${th('siteLockRemember')}</span>
         <select name="duration" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400">
-          <option value="session">仅本次会话（关闭浏览器后失效）</option>
-          <option value="1h">1 小时</option>
-          <option value="12h" selected>12 小时</option>
-          <option value="7d">7 天</option>
-          <option value="30d">30 天</option>
+          ${renderDurationOptions(siteLockDurationOptions)}
         </select>
       </label>
       <button type="submit" class="w-full rounded-lg bg-slate-800 px-4 py-3 font-medium text-white hover:bg-slate-900">${th('siteLockUnlock')}</button>

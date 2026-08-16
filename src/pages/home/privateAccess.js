@@ -1,6 +1,16 @@
 import { escapeHTML, htmlResponse } from '../../lib/utils.js';
 import { PRIVATE_BOOKMARK_CATEGORY } from '../../services/privateBookmarkService.js';
 import { homeCssVersion } from './css.js';
+import { privateAccessDurationOptions } from '../../services/privateBookmarkService.js';
+
+// 时长 `<select>` 渲染自解锁会话词汇（unlockSessionService.durationOptions）；
+// longSession 时给「仅本次会话」追加浏览器关闭失效说明（呈现层差异）。
+function renderDurationOptions(options, { longSession = false } = {}) {
+  return options.map((opt) => {
+    const label = opt.key === 'session' && longSession ? `${opt.label}（关闭浏览器后失效）` : opt.label;
+    return `<option value="${opt.key}"${opt.default ? ' selected' : ''}>${label}</option>`;
+  }).join('');
+}
 
 export function renderPrivateBookmarkUnlockBox(catalog, i18n = null) {
   return `<div class="col-span-full rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center">
@@ -10,11 +20,7 @@ export function renderPrivateBookmarkUnlockBox(catalog, i18n = null) {
       <input name="password" type="password" required autocomplete="current-password" placeholder="${escapeHTML(i18n?.t?.('accessPassword') || '访问密码')}" class="min-w-0 flex-1 rounded-lg border border-amber-200 bg-white px-4 py-2 outline-none focus:border-amber-400">
       <div class="flex items-center gap-3">
         <select name="duration" class="flex-1 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-800 outline-none focus:border-amber-400">
-          <option value="session">仅本次会话</option>
-          <option value="1h">1 小时</option>
-          <option value="12h" selected>12 小时</option>
-          <option value="7d">7 天</option>
-          <option value="30d">30 天</option>
+          ${renderDurationOptions(privateAccessDurationOptions)}
         </select>
         <button type="submit" class="rounded-lg bg-amber-500 px-5 py-2 font-medium text-white hover:bg-amber-600">${escapeHTML(i18n?.t?.('unlock') || '解锁')}</button>
       </div>
@@ -43,11 +49,7 @@ export function renderPrivateBookmarkPasswordPage({ catalog, error = '', i18n })
       <label class="block text-left text-xs text-amber-700">
         <span class="mb-1 block">记住此次解锁</span>
         <select name="duration" class="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-800 outline-none focus:border-amber-400">
-          <option value="session">仅本次会话（关闭浏览器后失效）</option>
-          <option value="1h">1 小时</option>
-          <option value="12h" selected>12 小时</option>
-          <option value="7d">7 天</option>
-          <option value="30d">30 天</option>
+          ${renderDurationOptions(privateAccessDurationOptions, { longSession: true })}
         </select>
       </label>
       <button type="submit" class="w-full rounded-lg bg-amber-500 px-4 py-3 font-medium text-white hover:bg-amber-600">${th('unlockAccess')}</button>
