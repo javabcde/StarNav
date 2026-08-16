@@ -38,6 +38,22 @@ export function timingSafeEqual(a, b) {
   return diff === 0;
 }
 
+/**
+ * 常量时间字符串比较（等长 hex/哈希串）：不提前返回，长度不等直接拒绝。
+ * 2026-08-16 架构评审候选 6：auth.js 私有副本收编至此——管理员旧 hex 密码校验
+ * （auth.js verifyAdminCredentials）与 API Token 哈希校验（apiTokenService）共用。
+ */
+export async function constantTimeCompare(a, b) {
+  if (a.length !== b.length) return false;
+  const aBytes = new TextEncoder().encode(a);
+  const bBytes = new TextEncoder().encode(b);
+  let result = 0;
+  for (let i = 0; i < aBytes.length; i++) {
+    result |= aBytes[i] ^ bBytes[i];
+  }
+  return result === 0;
+}
+
 export function isHashedPassword(value) {
   return typeof value === 'string' && value.startsWith(`${PASSWORD_HASH_PREFIX}$`);
 }

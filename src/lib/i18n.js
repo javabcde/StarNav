@@ -1,4 +1,5 @@
 import { escapeHTML } from './utils.js';
+import { parseCookies } from './cookie.js';
 
 // 仅保留已提供完整翻译的语言；新增语言时请同步在 I18N_MESSAGES 补齐对应文案。
 export const SUPPORTED_LANGUAGES = [
@@ -243,12 +244,6 @@ export const I18N_MESSAGES = {
   },
 };
 
-function parseCookies(cookieHeader = '') {
-  return Object.fromEntries(cookieHeader.split(';').map((item) => {
-    const [key, ...value] = item.trim().split('=');
-    return [key, decodeURIComponent(value.join('=') || '')];
-  }).filter(([key]) => key));
-}
 
 function normalizeLanguage(value) {
   if (!value) return '';

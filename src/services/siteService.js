@@ -9,16 +9,13 @@
 //   toSafeLikePattern、attachTagsToSites 及同构的 legacy 降级查询形态），整簇搬迁必须导出这套私有基建
 //   （形成双向深循环的假拆分）或复制共享逻辑，均违反纯搬迁约束；recordSearchTerm 与 searchSites 同属
 //   /api/search 端点链路、getSearchAnalytics 与 getSiteAnalytics 同属 analytics 读簇，随簇整体保留。
-import { extractHtmlFavicon } from '../lib/favicon.js';
-import { readTextWithLimit, safeFetch } from '../lib/ssrf.js';
-import { cleanText, normalizeSortOrder, nullableText } from '../lib/utils.js';
-import { upsertCategoryByName } from './categoryService.js';
+import { cleanText, normalizeIdList, normalizeSortOrder, nullableText } from '../lib/utils.js';
 import { PRIVATE_BOOKMARK_CATEGORY } from './privateBookmarkService.js';
-import { resolveSpaceId } from './spaceService.js';
+import { getDescendantCategoryNames, upsertCategoryByName } from './categoryService.js';
 import { attachTagsToSites, normalizeTags, setSiteTags } from './tagService.js';
 import { faviconFailedKey } from './iconService.js';
 import { logOperation, OPERATION_LOG_ACTIONS } from './operationLogService.js';
-import { deadSiteSql, okSiteSql, unknownSiteSql } from './healthQuery.js';
+import { deadSiteSql, isDeadSite, okSiteSql, unknownSiteSql } from './healthQuery.js';
 import { canAccessSite, canListSite, isPrivateSite, normalizeVisibility, SITE_VISIBILITIES, visibilityWhere } from './accessService.js';
 // 可见性规则已迁入 accessService（docs/adr/0003）；re-export 保持存量测试 import 面。
 export { canAccessSite, canListSite, isPrivateSite, normalizeVisibility, SITE_VISIBILITIES, visibilityWhere } from './accessService.js';
@@ -192,8 +189,7 @@ function matchesAdvancedFilters(site, filters) {
   const url = normalizeSearchText(site.url);
   const hosts = getHostParts(site.url);
   const visibility = normalizeVisibility(site.visibility, site.catelog);
-  const statusCode = Number(site.last_status_code);
-  const isDead = Boolean(site.last_error) || (Number.isFinite(statusCode) && (statusCode < 200 || statusCode >= 400));
+  const isDead = isDeadSite(site);
 
   if (filters.visibility && visibility !== filters.visibility) return false;
   if (filters.health === 'dead' && !isDead) return false;
@@ -427,22 +423,9 @@ export async function getSites(env, { page = 1, pageSize = 10, catalog = '', key
   }
 
   if (catalog) {
-    // 父分类包含其全部子孙分类的书签（分类树递归 CTE）；
-    // 与首页渲染语义一致：点父文件夹看到父+所有子文件夹的内容
-    let catalogNames = [catalog];
-    try {
-      const { results } = await env.NAV_DB.prepare(`
-        WITH RECURSIVE cat_tree(id, name) AS (
-          SELECT id, name FROM categories WHERE name = ?
-          UNION ALL
-          SELECT c.id, c.name FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
-        )
-        SELECT name FROM cat_tree
-      `).bind(catalog).all();
-      if (results && results.length) catalogNames = results.map((row) => row.name);
-    } catch (error) {
-      console.warn(`[sites] category tree resolve fallback: ${error?.message || error}`);
-    }
+    // 父分类包含其全部子孙分类的书签（分类子孙闭包单一源：categoryService，
+    // 与首页渲染的树递归同模块相邻，见 getDescendantCategoryNames）；
+    const catalogNames = await getDescendantCategoryNames(env, catalog);
     where.push(`(c.name IN (${catalogNames.map(() => '?').join(',')}) OR (s.category_id IS NULL AND s.catelog IN (${catalogNames.map(() => '?').join(',')})))`);
     binds.push(...catalogNames, ...catalogNames);
   }
@@ -1056,105 +1039,6 @@ export async function searchSites(env, { keyword = '', limit = 50, includePrivat
     .slice(0, safeLimit);
 }
 
-function normalizeCheckUrl(value) {
-  const text = cleanText(value);
-  if (!text) return '';
-  return /^https?:\/\//i.test(text) ? text : `https://${text}`;
-}
-
-export async function checkSiteHealth(env, id) {
-  const siteId = Number(id);
-  if (!Number.isInteger(siteId) || siteId <= 0) throw new Error('Invalid site id');
-
-  const site = await getSite(env, siteId);
-  if (!site) throw new Error('Site not found');
-
-  const targetUrl = normalizeCheckUrl(site.url);
-  let statusCode = null;
-  let error = '';
-
-  if (!targetUrl) {
-    error = 'URL is empty';
-  } else {
-    try {
-      new URL(targetUrl);
-      let response;
-      try {
-        response = await safeFetch(targetUrl, {
-          method: 'HEAD',
-          signal: AbortSignal.timeout(8000),
-          headers: { 'User-Agent': 'StarNav-LinkChecker/1.0' },
-        });
-      } catch (headError) {
-        response = await safeFetch(targetUrl, {
-          method: 'GET',
-          signal: AbortSignal.timeout(10000),
-          headers: { 'User-Agent': 'StarNav-LinkChecker/1.0' },
-        });
-      }
-      statusCode = response.status;
-      error = response.ok ? '' : `HTTP ${response.status}`;
-    } catch (checkError) {
-      error = checkError?.message || 'Check failed';
-    }
-  }
-
-  await env.NAV_DB.prepare(`
-    UPDATE sites
-    SET last_checked_at = CURRENT_TIMESTAMP,
-        last_status_code = ?,
-        last_error = ?,
-        update_time = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).bind(statusCode, error || null, siteId).run();
-
-  return {
-    id: siteId,
-    ok: Boolean(statusCode && statusCode >= 200 && statusCode < 400 && !error),
-    status_code: statusCode,
-    error,
-    checked_at: new Date().toISOString(),
-  };
-}
-
-export async function bulkCheckSiteHealth(env, ids, { ip } = {}) {
-  const siteIds = normalizeIdList(ids).slice(0, 30);
-  if (!siteIds.length) throw new Error('ids must be a non-empty array');
-
-  const results = [];
-  for (const siteId of siteIds) {
-    results.push(await checkSiteHealth(env, siteId));
-  }
-
-  const result = {
-    checked: results.length,
-    ok: results.filter((item) => item.ok).length,
-    failed: results.filter((item) => !item.ok).length,
-    results,
-  };
-  await logOperation(env, { action: OPERATION_LOG_ACTIONS.SITE_BULK_CHECK, target: 'site', summary: `批量检测 ${results.length} 个书签，正常 ${result.ok}，异常 ${result.failed}`, ip });
-  return result;
-}
-
-export async function runScheduledHealthCheck(env, { limit = 30 } = {}) {
-  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 30));
-  const { results: rows } = await env.NAV_DB.prepare(`
-    SELECT id
-    FROM sites
-    ORDER BY
-      CASE WHEN last_checked_at IS NULL THEN 0 ELSE 1 END ASC,
-      datetime(COALESCE(last_checked_at, '1970-01-01 00:00:00')) ASC,
-      id ASC
-    LIMIT ?
-  `).bind(safeLimit).all();
-  const ids = (rows || []).map((row) => Number(row.id)).filter((id) => Number.isInteger(id) && id > 0);
-  if (!ids.length) {
-    return { checked: 0, ok: 0, failed: 0, results: [] };
-  }
-  return bulkCheckSiteHealth(env, ids);
-}
-
-
 export async function incrementSiteHits(env, id) {
   return env.NAV_DB.prepare(`
     UPDATE sites
@@ -1163,6 +1047,7 @@ export async function incrementSiteHits(env, id) {
     WHERE id = ?
   `).bind(id).run();
 }
+
 
 export function buildDuplicateError(duplicate, scope = 'site') {
   const summary = duplicate?.name ? `${duplicate.name}（${duplicate.url}）` : duplicate?.url || '';
@@ -1278,10 +1163,7 @@ export async function deleteSite(env, id, { ip } = {}) {
   return result;
 }
 
-function normalizeIdList(ids) {
-  const list = Array.isArray(ids) ? ids : [];
-  return [...new Set(list.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
-}
+
 
 export async function bulkDeleteSites(env, ids, { ip } = {}) {
   const siteIds = normalizeIdList(ids);
@@ -1378,81 +1260,11 @@ export async function findDuplicateSite(env, url, { excludeId = null } = {}) {
   return row ? { id: row.id, name: row.name, url: row.url, catelog: row.catelog } : null;
 }
 
-export async function fetchSitePreview(url) {
-  const raw = cleanText(url);
-  if (!raw) throw new Error('URL is required');
-  const targetUrl = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+// 预览抓取簇（fetchSitePreview + meta 抽取）已迁入 lib/sitePreview.js
+// （2026-08-16 架构评审候选 4，零 D1 依赖，与 lib/favicon.js 同族）；
+// re-export 垫片保持存量测试与调用方 import 面不变，同 ADR-0003 模式。
+export { fetchSitePreview } from '../lib/sitePreview.js';
 
-  let response;
-  try {
-    response = await safeFetch(targetUrl, {
-      method: 'GET',
-      signal: AbortSignal.timeout(8000),
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; StarNav-Preview/1.0)',
-        'Accept': 'text/html,application/xhtml+xml',
-      },
-    });
-  } catch (err) {
-    throw new Error(`无法访问该网址：${err?.message || '请求超时'}`);
-  }
-
-  if (!response.ok) {
-    throw new Error(`网站返回 HTTP ${response.status}`);
-  }
-
-  const contentType = response.headers.get('content-type') || '';
-  if (!contentType.includes('text/html') && !contentType.includes('xhtml')) {
-    return { title: '', description: '', keywords: '', ogImage: '', favicon: '' };
-  }
-
-  const html = await readTextWithLimit(response, 512 * 1024);
-  const head = html.slice(0, 32000);
-
-  const title = extractMeta(head, /<title[^>]*>([^<]*)<\/title>/i) || '';
-  const description = extractMetaAttr(head, 'description') || extractMetaAttr(head, 'og:description') || '';
-  const keywords = extractMetaAttr(head, 'keywords') || '';
-  const ogImage = extractMetaAttr(head, 'og:image') || extractMetaAttr(head, 'twitter:image') || '';
-
-  let favicon = extractHtmlFavicon(html, targetUrl);
-
-  return {
-    title: cleanText(title).slice(0, 200),
-    description: cleanText(description).slice(0, 500),
-    keywords: cleanText(keywords).slice(0, 300),
-    ogImage: resolveUrl(targetUrl, cleanText(ogImage)),
-    favicon: favicon || '',
-  };
-}
-
-function extractMeta(html, regex) {
-  const match = html.match(regex);
-  return match ? match[1].trim() : '';
-}
-
-function extractMetaAttr(html, name) {
-  const patterns = [
-    new RegExp(`<meta[^>]+(?:name|property)=["']${name}["'][^>]+content=["']([^"']*)["']`, 'i'),
-    new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:name|property)=["']${name}["']`, 'i'),
-  ];
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
-    if (match) return match[1].trim();
-  }
-  return '';
-}
-
-function resolveUrl(base, relative) {
-  const rel = cleanText(relative);
-  if (!rel) return '';
-  if (/^https?:\/\//i.test(rel)) return rel;
-  if (rel.startsWith('//')) return 'https:' + rel;
-  try {
-    return new URL(rel, base).href;
-  } catch {
-    return '';
-  }
-}
 
 export async function reorderSites(env, items, { ip } = {}) {
   if (!Array.isArray(items) || items.length === 0) {

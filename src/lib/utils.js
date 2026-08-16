@@ -144,6 +144,15 @@ export function nullableText(value) {
   return cleaned || null;
 }
 
+/**
+ * 正整数 ID 列表归一：去重、仅保留正整数。
+ * 2026-08-16 架构评审候选 3：siteService / iconService / siteHealthService 三份副本收编至此。
+ */
+export function normalizeIdList(ids) {
+  const list = Array.isArray(ids) ? ids : [];
+  return [...new Set(list.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
+}
+
 export function isSubmissionEnabled(env, settings = null) {
   const settingFlag = settings?.publicSubmissionEnabled;
   if (settingFlag !== undefined && settingFlag !== null && settingFlag !== '') {

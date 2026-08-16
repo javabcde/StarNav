@@ -1,5 +1,6 @@
 import { escapeHTML } from '../../lib/utils.js';
 import { isPrivateBookmarkCategory } from '../../services/privateBookmarkService.js';
+import { normalizeCategoryColor } from '../../services/categoryService.js';
 
 // 分类自定义 SVG 图标白名单：只允许这些标签/属性，其余一律拒绝整段 SVG。
 // 采用白名单校验而非黑名单清理，从根本上规避 <script>/<foreignObject>/<animate>/on*/href 等绕过。
@@ -70,17 +71,13 @@ export function renderCategoryIcon(icon) {
 }
 
 export function getCategoryCssColor(value) {
-  const raw = String(value || '').trim();
-  if (!raw) return { raw: '', color: '', isGradient: false };
-  if (/[;"'{}<>]/.test(raw) || /(?:url|javascript|expression|behavior|@import)/i.test(raw)) {
-    return { raw: '', color: '', isGradient: false };
-  }
-  if (/^linear-gradient\(/i.test(raw)) return { raw, color: raw, isGradient: true };
-  if (/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(raw)) return { raw, color: raw, isGradient: false };
-  if (/^rgba?\([^)]+\)$/i.test(raw) || /^hsla?\([^)]+\)$/i.test(raw)) return { raw, color: raw, isGradient: false };
-  if (/^(primary|accent|secondary)$/i.test(raw)) return { raw, color: `var(--nav-${raw.toLowerCase()})`, isGradient: false };
-  if (/^[a-z][a-z0-9-]{1,30}$/i.test(raw)) return { raw, color: raw, isGradient: false };
-  return { raw: '', color: '', isGradient: false };
+  // 颜色校验单一源：categoryService.normalizeCategoryColor（候选 7 并轨），
+  // 本函数只做渲染形态映射（渐变标记 / 主题变量），禁止再手写校验正则。
+  const normalized = normalizeCategoryColor(value);
+  if (!normalized) return { raw: '', color: '', isGradient: false };
+  if (/^linear-gradient\(/i.test(normalized)) return { raw: normalized, color: normalized, isGradient: true };
+  if (/^(primary|accent|secondary)$/i.test(normalized)) return { raw: normalized, color: `var(--nav-${normalized})`, isGradient: false };
+  return { raw: normalized, color: normalized, isGradient: false };
 }
 
 export function renderCategoryLinks(nodes, options, level = 0) {

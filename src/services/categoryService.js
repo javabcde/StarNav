@@ -2,7 +2,16 @@ import { buildTree, cleanText, normalizeSortOrder } from '../lib/utils.js';
 import { PRIVATE_BOOKMARK_CATEGORY } from './privateBookmarkService.js';
 import { logOperation, OPERATION_LOG_ACTIONS } from './operationLogService.js';
 
-function cleanCategoryColor(value) {
+/**
+ * 分类颜色值统一安全校验（2026-08-16 架构评审候选 7）。
+ * 此前 categoryService.cleanCategoryColor（入库白名单）与 home/categories.js
+ * getCategoryCssColor（渲染校验）各持一套正则，命名色集合与 gradient 判定已分歧。
+ * 统一语义（并轨为一套，渲染端宽松形态保留为显式分支）：
+ *   - 恶意载荷一律拒绝（引号/尖括号/花括号/分号 + url/javascript/expression/behavior/@import）；
+ *   - 合法值：hex 3/6 位、rgba()/hsla()、linear-gradient()、CSS 颜色名（含 Tailwind 色板）。
+ * 返回规范化后的颜色值（命名色小写）或 null。消费方禁止再手写第二套正则。
+ */
+export function normalizeCategoryColor(value) {
   const text = cleanText(value);
   if (!text) return null;
 
@@ -12,16 +21,15 @@ function cleanCategoryColor(value) {
   }
 
   if (/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(normalized)) return normalized;
-  if (/^rgba?\(\s*(?:\d{1,3}\s*,\s*){2}\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i.test(normalized)) return normalized;
-  if (/^hsla?\(\s*\d{1,3}(?:deg)?\s*,\s*\d{1,3}%\s*,\s*\d{1,3}%(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i.test(normalized)) return normalized;
-  if (/^(primary|accent|secondary|slate|sky|cyan|teal|emerald|green|lime|amber|orange|rose|pink|purple|violet|indigo|blue|red|zinc|stone)$/i.test(normalized)) {
-    return normalized.toLowerCase();
-  }
-  if (/^linear-gradient\(\s*(?:\d{1,3}deg|to\s+(?:top|right|bottom|left)(?:\s+(?:top|right|bottom|left))?)\s*,\s*(?:#[0-9a-f]{3}(?:[0-9a-f]{3})?|rgba?\([^)]+\)|hsla?\([^)]+\)|[a-z][a-z0-9-]{1,30})\s*(?:\d{1,3}%?)?\s*,\s*(?:#[0-9a-f]{3}(?:[0-9a-f]{3})?|rgba?\([^)]+\)|hsla?\([^)]+\)|[a-z][a-z0-9-]{1,30})\s*(?:\d{1,3}%?)?\s*\)$/i.test(normalized)) {
-    return normalized;
-  }
-
+  if (/^rgba?\([^)]+\)$/i.test(normalized) || /^hsla?\([^)]+\)$/i.test(normalized)) return normalized;
+  if (/^linear-gradient\(/i.test(normalized)) return normalized;
+  // CSS 颜色名（含 primary/accent/secondary 与 Tailwind 色板，均落此规则；命名色统一小写）
+  if (/^[a-z][a-z0-9-]{1,30}$/i.test(normalized)) return normalized.toLowerCase();
   return null;
+}
+
+function cleanCategoryColor(value) {
+  return normalizeCategoryColor(value);
 }
 
 async function getDescendantCategoryIds(env, categoryId) {
@@ -36,6 +44,58 @@ async function getDescendantCategoryIds(env, categoryId) {
   `).bind(categoryId).all();
 
   return (results || []).map((row) => Number(row.id)).filter(Boolean);
+}
+
+// ── 分类子孙闭包单一源（2026-08-16 架构评审候选 5）───────────────
+// 「点父分类看到父 + 全部子孙分类」语义此前有三份实现：本文件 getDescendantCategoryIds（id 集）、
+// siteService.getSites 内联 CTE（name 集）、home.js 树递归（name 集），互相靠注释声称一致。
+// 现统一收编本模块：SQL 侧 getDescendantCategoryIds / getDescendantCategoryNames，
+// 树侧 collectCategoryWithDescendants（消费已加载分类树，避免渲染路径多一次 D1 往返）。
+// 两套实现同文件相邻、同注释族；消费方禁止再手写第三份。
+
+/**
+ * 解析某分类及其全部子孙分类名（SQL 递归 CTE；失败回退为仅精确匹配名）。
+ */
+export async function getDescendantCategoryNames(env, name) {
+  let names = [name];
+  try {
+    const { results } = await env.NAV_DB.prepare(`
+      WITH RECURSIVE cat_tree(id, name) AS (
+        SELECT id, name FROM categories WHERE name = ?
+        UNION ALL
+        SELECT c.id, c.name FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+      )
+      SELECT name FROM cat_tree
+    `).bind(name).all();
+    if (results && results.length) names = results.map((row) => row.name);
+  } catch (error) {
+    console.warn(`[categories] category tree resolve fallback: ${error?.message || error}`);
+  }
+  return names;
+}
+
+/**
+ * 在已加载分类树上收集目标分类及其全部子孙分类名（纯函数，Set 返回）。
+ * 与 getDescendantCategoryNames 语义一致，供渲染路径复用内存树。
+ */
+export function collectCategoryWithDescendants(nodes, targetName, acc = new Set()) {
+  for (const node of nodes) {
+    if (node.name === targetName) {
+      collectSubtreeNames(node, acc);
+      return acc;
+    }
+    if (Array.isArray(node.children) && node.children.length) {
+      collectCategoryWithDescendants(node.children, targetName, acc);
+    }
+  }
+  return acc;
+}
+
+function collectSubtreeNames(node, acc) {
+  acc.add(node.name);
+  if (Array.isArray(node.children)) {
+    for (const child of node.children) collectSubtreeNames(child, acc);
+  }
 }
 
 async function ensurePrivateBookmarkCategory(env) {

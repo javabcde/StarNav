@@ -2,7 +2,7 @@ import { escapeHTML, htmlResponse, isSubmissionEnabled, sanitizeImageUrl, saniti
 import { resolveI18n } from '../lib/i18n.js';
 import { getAllSites } from '../services/siteService.js';
 import { getAccessContext } from '../services/accessService.js';
-import { getCategoryTree } from '../services/categoryService.js';
+import { collectCategoryWithDescendants, getCategoryTree } from '../services/categoryService.js';
 import { getSystemSettings } from '../services/systemSettingsService.js';
 import {
   PRIVATE_BOOKMARK_CATEGORY,
@@ -24,26 +24,6 @@ import { homeClientScript } from './home/clientScript.js';
 import { homeCssVersion } from './home/css.js';
 import { ACCENTS, DEFAULT_ACCENT, accentVarsCss } from './home/accents.js';
 
-// 收集某分类及其全部子孙分类名（分类树递归，与 API 端递归 CTE 语义一致）
-function collectCategoryWithDescendants(nodes, targetName, acc = new Set()) {
-  for (const node of nodes) {
-    if (node.name === targetName) {
-      collectSubtreeNames(node, acc);
-      return acc;
-    }
-    if (Array.isArray(node.children) && node.children.length) {
-      collectCategoryWithDescendants(node.children, targetName, acc);
-    }
-  }
-  return acc;
-}
-
-function collectSubtreeNames(node, acc) {
-  acc.add(node.name);
-  if (Array.isArray(node.children)) {
-    for (const child of node.children) collectSubtreeNames(child, acc);
-  }
-}
 
 export async function renderHomePage(request, env, ctx) {
   const i18n = resolveI18n(request);

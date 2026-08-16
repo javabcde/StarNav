@@ -1,13 +1,14 @@
 import { escapeHTML, sanitizeUrl, sanitizeImageUrl } from '../../lib/utils.js';
 import { CARD_CONTRACT } from './cardContract.js';
+import { isDeadSite } from '../../services/healthQuery.js';
 
 // 卡片形状契约（与 clientScript.js 生成期共用）：class 串、徽章文案、data 属性名单一来源
 const { wrapperClass, healthBadgeClass, healthBadgeLabel, lastCheckedPrefix } = CARD_CONTRACT;
 const [attrId, attrName, attrUrl, attrCatalog, attrTags] = CARD_CONTRACT.dataAttrs;
 
 export function isUnhealthySite(site) {
-  const statusCode = Number(site?.last_status_code);
-  return Boolean(site?.last_error) || (Number.isFinite(statusCode) && (statusCode < 200 || statusCode >= 400));
+  // 语义单一源：与 SQL 三态谓词同族（services/healthQuery.js），禁止内联副本
+  return isDeadSite(site);
 }
 
 export function renderHealthBadge(site) {

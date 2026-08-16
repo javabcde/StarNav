@@ -1,6 +1,6 @@
 // 管理资源模块（admin）：健康检查、token、webhook、操作日志（管理员）。
 import { jsonResponse } from '../../../lib/utils.js';
-import { createApiToken, listApiTokens, revokeApiToken } from '../../../lib/auth.js';
+import { createApiToken, listApiTokens, revokeApiToken } from '../../../lib/apiTokenService.js';
 import { listOperationLogs } from '../../../services/operationLogService.js';
 import { getSystemHealth } from '../../../services/systemHealthService.js';
 import { createWebhook, deleteWebhook, listWebhooks, testWebhook, updateWebhook } from '../../../services/webhookService.js';

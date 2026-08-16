@@ -1,7 +1,8 @@
 // 设置资源模块（settings）：公开设置（public）、系统/AI/私人书签/整站锁设置（管理员）。
 import { jsonResponse } from '../../../lib/utils.js';
 import { requireAdmin } from '../errors.js';
-import { getAiSettings, listAiModels, testAiSettings, updateAiSettings } from '../../../services/aiService.js';
+import { getAiSettings, updateAiSettings } from '../../../services/aiSettingsService.js';
+import { listAiModels, testAiSettings } from '../../../services/aiService.js';
 import { getSystemSettings, updateSystemSettings } from '../../../services/systemSettingsService.js';
 import { getPrivateBookmarkPassword, updatePrivateBookmarkPassword } from '../../../services/privateBookmarkService.js';
 import { clearSiteLockPassword, isSiteLockEnabled, updateSiteLockPassword } from '../../../services/siteLockService.js';

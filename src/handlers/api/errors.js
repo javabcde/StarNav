@@ -1,5 +1,5 @@
 import { conflict, errorResponse, forbidden, isSubmissionEnabled, jsonResponse, unauthorized } from '../../lib/utils.js';
-import { hasBearerToken, tokenHasScope } from '../../lib/auth.js';
+import { hasBearerToken, tokenHasScope } from '../../lib/apiTokenService.js';
 import { getAccessContext } from '../../services/accessService.js';
 import { getSystemSettings } from '../../services/systemSettingsService.js';
 

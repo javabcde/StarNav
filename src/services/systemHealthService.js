@@ -1,6 +1,6 @@
-import { listApiTokens } from '../lib/auth.js';
+import { listApiTokens } from '../lib/apiTokenService.js';
 import { listBackups } from './backupService.js';
-import { getAiSettings } from './aiService.js';
+import { getAiSettings } from './aiSettingsService.js';
 import { getSystemSettings } from './systemSettingsService.js';
 import { listWebhooks } from './webhookService.js';
 import { deadSiteSql } from './healthQuery.js';

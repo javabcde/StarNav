@@ -38,3 +38,37 @@ export function okSiteSql(alias = '') {
 export function unknownSiteSql(alias = '') {
   return alias ? `${alias}.last_checked_at IS NULL` : 'last_checked_at IS NULL';
 }
+
+// ── JS 侧三态谓词（与上方 SQL 渲染器同语义、同注释族）───────────────
+// 消费方：搜索评分（siteService）、SSR 徽章（siteCard）、客户端过滤镜像
+// （clientScript / adminJs 经生成期内联）。禁止在消费方再手写副本。
+// JS 与 SQL 的镜像关系：last_error 非空 ≈ last_error IS NOT NULL；
+// last_status_code 空值（null/undefined）必须显式排除——Number(null) 为 0，
+// 若不排除会把「已检测但无状态码」误判为 dead（SQL 侧守卫 IS NOT NULL）。
+
+/**
+ * JS 版 dead 判定：last_error 非空，或状态码已知且 <200 或 >=400。
+ * 与 deadSiteSql 逐字同义；NULL 状态码（gap 态）不判定为 dead。
+ */
+export function isDeadSite(site) {
+  const code = site?.last_status_code;
+  return Boolean(site?.last_error)
+    || (code !== null && code !== undefined && (Number(code) < 200 || Number(code) >= 400));
+}
+
+/**
+ * JS 版 ok 判定：无错误且状态码为 2xx/3xx。与 okSiteSql 同义。
+ */
+export function isOkSite(site) {
+  const code = site?.last_status_code;
+  return !site?.last_error
+    && code !== null && code !== undefined
+    && Number(code) >= 200 && Number(code) < 400;
+}
+
+/**
+ * JS 版 unknown 判定：从未检测（last_checked_at 为空）。与 unknownSiteSql 同义。
+ */
+export function isUnknownSite(site) {
+  return site?.last_checked_at === null || site?.last_checked_at === undefined;
+}

@@ -2,7 +2,9 @@
 // 路由匹配由 api.js 的表驱动 dispatcher 负责；本模块每个导出函数对应一个端点，
 // 签名统一 (request, env, ctx, path, method, id, url)，未命中的方法返回 null 让 dispatcher 落到 404。
 import { errorResponse, isSubmissionEnabled, jsonResponse } from '../../../lib/utils.js';
+
 import { getFavicon } from '../../../lib/favicon.js';
+import { fetchSitePreview } from '../../../lib/sitePreview.js';
 import { getAccessContext } from '../../../services/accessService.js';
 import { isPrivateBookmarkCategory } from '../../../services/privateBookmarkService.js';
 import { clientIpFromRequest } from '../../../services/operationLogService.js';
@@ -11,17 +13,15 @@ import { syncBookmarks, unsyncSite, SYNC_EMPTY_SNAPSHOT_ERROR } from '../../../s
 import { suggestCategoryForSite, suggestTagsForSite } from '../../../services/aiService.js';
 import { requireAdmin, requireSubmitter } from '../errors.js';
 import { bulkRefreshSiteFavicons, ensureSiteFavicon } from '../../../services/iconService.js';
+import { bulkCheckSiteHealth, checkSiteHealth } from '../../../services/siteHealthService.js';
 import { sitesToBookmarkHtml, sitesToCsv } from '../sites.js';
 import {
   approvePendingSite,
-  bulkCheckSiteHealth,
   bulkDeleteSites,
   bulkUpdateSites,
-  checkSiteHealth,
   createSite,
   deleteSite,
   exportConfig,
-  fetchSitePreview,
   findDuplicateSite,
   getPendingSites,
   getSite,

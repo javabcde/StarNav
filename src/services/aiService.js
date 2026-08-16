@@ -1,6 +1,4 @@
 import { cleanText } from '../lib/utils.js';
-import { decryptSecret, encryptSecret } from '../lib/crypto.js';
-import { getSetting, setSetting } from './settingsService.js';
 import { getSite, searchSites, getSiteAnalytics } from './siteService.js';
 import { canAccessSite } from './accessService.js';
 import { listCategories } from './categoryService.js';
@@ -22,54 +20,12 @@ import {
   suggestTagsLocally,
 } from './aiLocalLogic.js';
 import { callOpenAiCompatible, DEFAULT_AI_SETTINGS, getModelsEndpoint, normalizeAiSettingsPayload } from './aiModelService.js';
+import { getAiSettings, updateAiSettings } from './aiSettingsService.js';
 
-const AI_SETTING_PREFIX = 'ai.';
-
-// bool 字符串归一：仅 true / 'true' 视为 'true'，其余一律 'false'。
-// 与 aiModelService.normalizeAiSettingsPayload 的布尔判定同源；后者用于把载荷并入已存设置
-// （updateAiSettings / testAiSettings / listAiModels），本函数用于读取与强制写回时的归一。
-function boolString(value) {
-  return String(value) === 'true' ? 'true' : 'false';
-}
-
-export async function getAiSettings(env, { includeSecret = false } = {}) {
-  const settings = {};
-  for (const [key, defaultValue] of Object.entries(DEFAULT_AI_SETTINGS)) {
-    settings[key] = await getSetting(env, `${AI_SETTING_PREFIX}${key}`, defaultValue);
-  }
-
-  settings.enabled = boolString(settings.enabled);
-  settings.configured = Boolean(settings.apiKey);
-  if (includeSecret) {
-    settings.apiKey = await decryptSecret(env, settings.apiKey);
-  } else {
-    settings.apiKey = settings.configured ? '********' : '';
-  }
-
-  return settings;
-}
-
-export async function updateAiSettings(env, payload = {}) {
-  // merge+persist：先读已存设置，经 normalizeAiSettingsPayload 合并载荷——文本字段 cleanText
-  // 后回退到已存值再回退默认（缺省不再重置为默认值），'********' 星号占位不覆盖已存密钥。
-  // bool 字段保持既有强制归一：未提供视为 false（后台开关始终随表单整包提交）。
-  const saved = await getAiSettings(env, { includeSecret: true });
-  const settings = normalizeAiSettingsPayload(saved, payload);
-
-  await setSetting(env, `${AI_SETTING_PREFIX}enabled`, boolString(payload.enabled));
-  await setSetting(env, `${AI_SETTING_PREFIX}enableThinking`, boolString(payload.enableThinking));
-  await setSetting(env, `${AI_SETTING_PREFIX}baseUrl`, settings.baseUrl);
-  await setSetting(env, `${AI_SETTING_PREFIX}model`, settings.model);
-  await setSetting(env, `${AI_SETTING_PREFIX}systemPrompt`, settings.systemPrompt);
-
-  // apiKey 不走合并结果写回：仅当提交了非占位新值时才加密落库，避免明文/密文反复重写。
-  const apiKey = cleanText(payload.apiKey);
-  if (apiKey && apiKey !== '********') {
-    await setSetting(env, `${AI_SETTING_PREFIX}apiKey`, await encryptSecret(env, apiKey));
-  }
-
-  return getAiSettings(env);
-}
+// AI 设置域（ai.* 键域：默认值/批量读写/密钥加解密）已迁入 aiSettingsService
+// （2026-08-16 架构评审候选 2，与 systemSettingsService 同构）；
+// 本地导入供本模块编排使用；re-export 垫片保持存量测试与调用方 import 面不变。
+export { getAiSettings, updateAiSettings };
 
 async function searchExpandedSites(env, {
   message,

@@ -3,7 +3,7 @@
 // 机制：密码 PBKDF2 校验（含历史明文自动升级，哈希段在 lib/crypto.js）、
 // 随机 token 存 KV（NAV_AUTH）、Cookie 携带、滑动续期、可主动退出。
 // 策略（cookie 名 / KV 前缀 / setting key / 限速 / 状态缓存 / 分类常量）留在 adapter。
-import { parseCookies } from '../lib/auth.js';
+import { parseCookies } from '../lib/cookie.js';
 import {
   hashPassword,
   isHashedPassword,

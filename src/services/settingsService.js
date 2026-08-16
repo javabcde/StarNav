@@ -48,6 +48,25 @@ export async function setSetting(env, key, value) {
   `).bind(normalizedKey, value === undefined || value === null ? '' : String(value)).run();
 }
 
+/**
+ * 批量写设置（多语句原子写）：替代逐 key setSetting 的 N 次串行 D1 往返。
+ * 空值统一落 ''（与 setSetting 语义一致）；空 entries 为 no-op。
+ */
+export async function setSettings(env, entries = []) {
+  const statements = [];
+  for (const [key, value] of entries) {
+    const normalizedKey = cleanText(key);
+    if (!normalizedKey) continue;
+    statements.push(env.NAV_DB.prepare(`
+      INSERT INTO settings (key, value)
+      VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).bind(normalizedKey, value === undefined || value === null ? '' : String(value)));
+  }
+  if (!statements.length) return;
+  await env.NAV_DB.batch(statements);
+}
+
 export async function deleteSetting(env, key) {
   const normalizedKey = cleanText(key);
   if (!normalizedKey) return;

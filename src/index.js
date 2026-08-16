@@ -5,7 +5,7 @@ import { handlePwaRequest } from './handlers/pwa.js';
 import { handleSiteLockRequest } from './handlers/siteLock.js';
 import { renderHomePage } from './pages/home.js';
 import { ensureSchema } from './services/migrationService.js';
-import { runScheduledHealthCheck } from './services/siteService.js';
+import { runScheduledHealthCheck } from './services/siteHealthService.js';
 import { runScheduledBackup } from './services/backupService.js';
 import { errorResponse, withSecurityHeaders } from './lib/utils.js';
 import { withHomeEdgeCache } from './lib/edgeCache.js';

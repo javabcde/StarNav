@@ -85,9 +85,12 @@ Local run needs real D1/KV IDs in `wrangler.toml` (placeholders `REPLACE_WITH_YO
 | `src/index.js` | Worker entry, router, security-header wrapper, scheduled handler |
 | `src/handlers/api.js` | All REST API routes (auth gate, JSON parsing, error mapping) |
 | `src/handlers/api/errors.js` | `requireAdmin` + `handleApiError` — the error contract |
-| `src/services/siteService.js` | Core bookmark domain: CRUD, visibility, search scoring, health checks |
+| `src/services/siteService.js` | Core bookmark domain: CRUD, visibility, search scoring, analytics (health checks in siteHealthService, preview in lib/sitePreview.js) |
+| `src/lib/auth.js` | Admin sessions + password/throttle (API tokens in `lib/apiTokenService.js`, cookie parsing in `lib/cookie.js`) |
+| `src/services/aiSettingsService.js` | AI settings domain (`ai.*` keys; batch read/write over `settingsService` adapter — sibling of `systemSettingsService`) |
+| `src/services/siteHealthService.js` | Site health-check execution (predicates live in `healthQuery.js`) |
+| `src/services/healthQuery.js` | Site-health tri-state single source: SQL renderers + JS predicates, same file |
 | `src/services/migrationService.js` | `ensureSchema` — idempotent migrations per request |
-| `src/lib/auth.js` | Sessions, tokens, throttling |
 | `src/lib/utils.js` | Response factories + `withSecurityHeaders` + sanitizers |
 | `wrangler.toml` | Bindings `NAV_DB` / `NAV_AUTH`; placeholder IDs replaced by CI |
 | `schema.sql` | Canonical schema for `db:init` / CI deploy |
@@ -116,5 +119,5 @@ Local run needs real D1/KV IDs in `wrangler.toml` (placeholders `REPLACE_WITH_YO
 - **Determinism**: no fake timers — relative `Date.now()` offsets captured at module load; real WebCrypto with a fixed test `SECRET_KEY`; test-only resets like `resetMigrationStateForTest()`.
 - **Extension tests**: `popup-logic.js` loaded via `vm.runInThisContext` (UMD, repo is ESM); `popup-view-persist.test.js` uses source-regex assertions as regression locks.
 - **Test naming**: newer tests in Chinese with full-width colon, e.g. `test('isFullBrowseCache：仅 kind==="full" 且 items 为数组', ...)`; assert messages in Chinese.
-- **Coverage gaps** (add tests when touching): worker entry routing, `handlers/pwa.js` / `admin.js`, `api/sites.js` CRUD beyond the auth gate, `api/spaces.js`, `api/discovery.js`, most pages, `aiService`, `backupService`, `categoryService`, settings services. Well-covered: site lock, auth/tokens, API errors, bookmark sync, migration, go redirect, favicon, ssrf, edge cache, popup logic.
+- **Coverage gaps** (add tests when touching): worker entry routing, `handlers/pwa.js` / `admin.js`, `api/sites.js` CRUD beyond the auth gate, `api/spaces.js`, `api/discovery.js`, most pages, `backupService`, webhook/operationLog/settings services beyond the AI settings domain (its read/write behavior is covered via `aiService.test.js`). Well-covered: site lock, auth/tokens, API errors, bookmark sync, migration, go redirect, favicon, ssrf, edge cache, health tri-state (SQL + JS), preview scraping, category descendants/color validation, popup logic.
 - **Deployment QA**: `docs/deployment-checklist.md` requires quality pass + `wrangler deploy --dry-run`; deploy workflow re-runs schema.sql remotely (idempotent) and fails if wrangler.toml placeholders remain.

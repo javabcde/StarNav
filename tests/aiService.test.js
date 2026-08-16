@@ -35,6 +35,10 @@ function createMockEnv({ settings = {}, tagRows = [], topSites = [], noTagSites 
     if (s.startsWith('SELECT value FROM settings WHERE key = ?')) {
       return { row: store.has(binds[0]) ? { value: store.get(binds[0]) } : null };
     }
+    if (s.startsWith('SELECT key, value FROM settings')) {
+      const prefix = String(binds[0] || '').replace(/%$/, '');
+      return { rows: [...store.entries()].filter(([k]) => k.startsWith(prefix)).map(([key, value]) => ({ key, value })) };
+    }
     if (s.startsWith('INSERT INTO settings')) {
       writes.push({ key: binds[0], value: binds[1] });
       store.set(binds[0], binds[1]);

@@ -1,3 +1,5 @@
+import { normalizeIdList } from '../lib/utils.js';
+
 // 图标自动补全（Icon Auto-Fill）：抓取策略 + KV 永久失败标记 + 批量刷新（术语见 CONTEXT.md）。
 // lib/favicon.js 保持纯抓取（6 源），本模块持有"何时抓 / 何时永久放弃 / 何时重置"，
 // 变更记录随批量刷新写入 operation_logs（C6 服务层记录）。
@@ -52,10 +54,7 @@ export async function ensureSiteFavicon(env, site) {
   }
 }
 
-function normalizeIdList(ids) {
-  const list = Array.isArray(ids) ? ids : [];
-  return [...new Set(list.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
-}
+
 
 /**
  * 批量刷新站点图标（手动操作 = 显式重试）：无论成败都清除自动补全的失败标记，

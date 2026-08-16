@@ -1,6 +1,6 @@
 # StarNav
 
-个人/团队书签导航系统（Cloudflare Workers + D1 + KV）。本文档记录站点访问控制领域的术语；实现细节见代码与 ADR。
+个人/团队书签导航系统（Cloudflare Workers + D1 + KV）。本文档记录站点访问控制、书签同步、插件站内浏览、站点健康与 AI 接入领域的术语；实现细节见代码与 ADR。
 
 ## 访问控制
 
@@ -39,6 +39,19 @@ _Avoid_: icon、favicon
 **图标自动补全 (Icon Auto-Fill)**:
 站点无图标时，从点击路径（主站 `/go/:id` 跳转、插件站内浏览点击）触发的一次性后台补全：`getFavicon` 抓取成功则写回 `logo`，抓取失败则以 KV 标记 `favicon:failed:{id}` **永久放弃**——自动路径不再重试，只有手动操作（admin 批量刷新图标、编辑书签）才清标记重置。补全不阻塞跳转/打开，失败静默。
 _Avoid_: 图标刷新、favicon 重试
+
+
+## 站点健康
+
+**站点健康三态 (Site Health)**:
+站点链接可访问性的检测结果三态：**正常 (ok)**（无错误且状态码 2xx/3xx）、**异常 (dead)**（记录过错误，或状态码已知且 <200 / >=400）、**未检测 (unknown)**（从未检测，`last_checked_at` 为空）。判定语义单一源在 `healthQuery.js`——SQL 谓词渲染与 JS 谓词同文件相邻，消费方（列表过滤、搜索评分、徽章、后台列表）禁止手写副本。「已检测但无状态码」为三态皆否的 gap 态（历史数据可能存在），不误判为异常。
+_Avoid_: 链接检测、健康状态、异常链接判定
+
+## AI 接入
+
+**AI 设置 (AI Settings)**:
+`ai.*` 键域设置（启用开关 / 模型 / 密钥 / 提示词等）。域逻辑单一源在 `aiSettingsService.js`，与 `systemSettingsService` 同构（适配器 `settingsService` + 领域模块）；编排（aiService）与系统健康聚合（systemHealthService）只消费不重推。密钥加密存储在 `lib/crypto.js`（`enc:v1:` 前缀）。
+_Avoid_: AI 配置、模型设置、AI 参数
 
 ## 书签同步
 
