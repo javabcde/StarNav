@@ -1,4 +1,5 @@
-import { buildSessionCookie, clearLoginFailures, createAdminSession, destroyAdminSession, getLoginThrottle, registerLoginFailure, validateAdminSession, verifyAdminCredentials } from '../lib/auth.js';
+import { buildSessionCookie, createAdminSession, destroyAdminSession, validateAdminSession } from '../services/unlockSessionService.js';
+import { clearLoginFailures, getLoginThrottle, registerLoginFailure, verifyAdminCredentials } from '../lib/auth.js';
 import { escapeHTML, htmlResponse, textResponse } from '../lib/utils.js';
 import { getAdminAsset } from '../pages/adminAssets.js';
 

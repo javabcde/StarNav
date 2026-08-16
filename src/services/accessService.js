@@ -3,7 +3,7 @@
 // 只做读侧判定——写侧状态转移（登录建会话、解锁种 cookie、token 吊销、失败限速）
 // 留在各自 service。鉴权 cookie 名单与整站锁白名单策略收归本模块，消费方
 // （edgeCache、handlers、services）不再各自重推规则。决策见 docs/adr/0003。
-import { SESSION_COOKIE_NAME, isAdminAuthenticated } from '../lib/auth.js';
+import { SESSION_COOKIE_NAME, isAdminAuthenticated } from './unlockSessionService.js';
 import { hasBearerToken, validateApiToken } from '../lib/apiTokenService.js';
 import { parseCookies } from '../lib/cookie.js';
 import { cleanText } from '../lib/utils.js';

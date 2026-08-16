@@ -111,3 +111,7 @@ _Avoid_: 客户端工具函数、内联脚本逻辑
 **投稿分析 (Submission Analytics)**:
 投稿审核域的分析计算分层：per-metric D1 查询编排留在 `submissionService.getSubmissionAnalytics`，纯聚合（日序列补齐、7×24 热力、质量指标、域名聚合、趋势/异常、审核压力、审核窗口、日历分级）单一持有在 `services/submissionAnalytics.js`（`SUBMISSION_EVENTS_SQL` 双源并集同址），零 D1 依赖、node:test 直接单测。`getPendingSites` 主查询 → legacy 降级（仅 pending 态）→ 空结果的三层回退梯由 tests/getPendingSites.test.js 锁定。
 _Avoid_: 投稿统计、提交分析逻辑
+
+**会话工厂 (Session Factory)**:
+访问凭据会话机制的单一持有点，`services/unlockSessionService.js`：`createUnlockSessionManager`（解锁会话：整站锁/私人书签两 adapter 各持实例）与 `createAdminSessionManager`（管理员会话：12h 滑动半窗节流 + 7d 绝对上限 + 请求级 WeakMap 缓存）两个参数化工厂。KV token 生命周期、滑动续期（shouldRenew）、Cookie 构建（sessionPolicy）词汇集中于此；`lib/auth.js` 收口为密码/限速域并保留会话 re-export 垫片（决策见 ADR-0009）。
+_Avoid_: 会话工具、session 管理

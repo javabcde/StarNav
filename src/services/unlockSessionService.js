@@ -195,3 +195,139 @@ export function createUnlockSessionManager({
     verifyPasswordHash,
   };
 }
+
+// ── 管理员会话（Admin Session）────────────────────────────────────────
+// 与解锁会话同族的第二种会话 kind：KV token + 滑动续期 + Cookie，策略不同——
+// 固定 12h 滑动窗口（半窗节流）、7d 绝对存活上限、payload 形状 {createdAt, lastRefresh}、
+// 请求级 WeakMap 鉴权缓存。2026-08-16 架构评审候选 5：自 lib/auth.js 并入本模块
+// （auth.js 保留 re-export 垫片，存量测试与调用方 import 面不变，同 ADR-0003 模式）。
+export const ADMIN_SESSION_COOKIE_NAME = 'nav_admin_session';
+const ADMIN_SESSION_PREFIX = 'session:';
+const ADMIN_SESSION_TTL_SECONDS = 60 * 60 * 12;
+const ADMIN_SESSION_ABSOLUTE_TTL_SECONDS = 60 * 60 * 24 * 7;
+
+/**
+ * 创建管理员会话管理器（参数化，默认值即现行策略）。
+ * @param {object} [config]
+ * @param {string} [config.cookieName=ADMIN_SESSION_COOKIE_NAME]
+ * @param {string} [config.tokenPrefix=ADMIN_SESSION_PREFIX]
+ * @param {number} [config.ttlSeconds=ADMIN_SESSION_TTL_SECONDS] 滑动窗口长（半窗节流续期）。
+ * @param {number} [config.absoluteTtlSeconds=ADMIN_SESSION_ABSOLUTE_TTL_SECONDS] 绝对存活上限。
+ * @returns {object} 管理员会话机制 API。
+ */
+export function createAdminSessionManager({
+  cookieName = ADMIN_SESSION_COOKIE_NAME,
+  tokenPrefix = ADMIN_SESSION_PREFIX,
+  ttlSeconds = ADMIN_SESSION_TTL_SECONDS,
+  absoluteTtlSeconds = ADMIN_SESSION_ABSOLUTE_TTL_SECONDS,
+} = {}) {
+  /**
+   * 构建管理员 session Cookie（属性集收编 lib/sessionPolicy.js，不设 Secure）。
+   */
+  function buildCookie(token, options = {}) {
+    const { maxAge = ttlSeconds } = options;
+    return buildCookieString(cookieName, token, { maxAge });
+  }
+
+  /**
+   * 创建会话并写入 KV。
+   * @returns {Promise<string>} session token。
+   */
+  async function createSession(env) {
+    const token = crypto.randomUUID();
+    await env.NAV_AUTH.put(`${tokenPrefix}${token}`, JSON.stringify({ createdAt: Date.now() }), {
+      expirationTtl: ttlSeconds,
+    });
+    return token;
+  }
+
+  /**
+   * 刷新会话 TTL（原样写回 payload）。
+   */
+  async function refreshSession(env, token, payload) {
+    await env.NAV_AUTH.put(`${tokenPrefix}${token}`, payload, { expirationTtl: ttlSeconds });
+  }
+
+  /**
+   * 销毁会话。
+   */
+  async function destroySession(env, token) {
+    if (!token) return;
+    await env.NAV_AUTH.delete(`${tokenPrefix}${token}`);
+  }
+
+  /**
+   * 校验请求中的管理员 session Cookie。
+   * 校验成功时按 shouldRenew 半窗节流滑动续期；超绝对上限即销毁。
+   * @returns {Promise<{authenticated: boolean, token?: string}>}
+   */
+  async function validateSession(request, env) {
+    const cookies = parseCookies(request.headers.get('Cookie') || '');
+    const token = cookies[cookieName];
+    if (!token) return { authenticated: false };
+
+    const sessionKey = `${tokenPrefix}${token}`;
+    const payload = await env.NAV_AUTH.get(sessionKey);
+    if (!payload) return { authenticated: false };
+
+    // 绝对过期：即使持续活跃，会话最长存活 absoluteTtlSeconds，限制被盗会话的滥用窗口
+    let parsedPayload = null;
+    try {
+      parsedPayload = JSON.parse(payload);
+    } catch {
+      parsedPayload = null;
+    }
+    const createdAt = Number(parsedPayload?.createdAt) || 0;
+    if (createdAt && Date.now() - createdAt > absoluteTtlSeconds * 1000) {
+      await destroySession(env, token);
+      return { authenticated: false };
+    }
+
+    // 滑动续期降频：距上次续期不足 ttlSeconds/2 时跳过 KV 写（判定收编 lib/sessionPolicy.js）
+    const now = Date.now();
+    if (shouldRenew({ createdAt, refreshedAt: parsedPayload?.lastRefresh, ttlMs: ttlSeconds * 1000, now })) {
+      if (parsedPayload) {
+        await refreshSession(env, token, JSON.stringify({ ...parsedPayload, lastRefresh: now }));
+      } else {
+        await refreshSession(env, token, payload); // 解析失败保持原样续期
+      }
+    }
+    return { authenticated: true, token };
+  }
+
+  // 请求级鉴权结果缓存：同请求内多次调用只做一次 KV 读。WeakMap 键为 Request 对象，
+  // 请求结束即随对象回收，无跨请求泄漏。
+  const authCache = new WeakMap();
+
+  /**
+   * 判断当前请求是否已通过管理员鉴权。
+   */
+  async function isAuthenticated(request, env) {
+    const cached = authCache.get(request);
+    if (cached !== undefined) return cached;
+    const promise = validateSession(request, env)
+      .then((result) => result.authenticated)
+      .catch(() => false);
+    authCache.set(request, promise);
+    return promise;
+  }
+
+  return {
+    buildCookie,
+    createSession,
+    refreshSession,
+    destroySession,
+    validateSession,
+    isAuthenticated,
+  };
+}
+
+// 单例：现行策略实例，具名导出与 lib/auth.js 历史导出面一致。
+const adminSessionManager = createAdminSessionManager();
+export const SESSION_COOKIE_NAME = ADMIN_SESSION_COOKIE_NAME;
+export const buildSessionCookie = adminSessionManager.buildCookie;
+export const createAdminSession = adminSessionManager.createSession;
+export const refreshAdminSession = adminSessionManager.refreshSession;
+export const destroyAdminSession = adminSessionManager.destroySession;
+export const validateAdminSession = adminSessionManager.validateSession;
+export const isAdminAuthenticated = adminSessionManager.isAuthenticated;

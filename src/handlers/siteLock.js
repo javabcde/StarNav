@@ -1,4 +1,4 @@
-import { isAdminAuthenticated } from '../lib/auth.js';
+import { isAdminAuthenticated } from '../services/unlockSessionService.js';
 import { validateApiToken } from '../lib/apiTokenService.js';
 import { resolveI18n } from '../lib/i18n.js';
 import { errorResponse } from '../lib/utils.js';
