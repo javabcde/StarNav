@@ -13,55 +13,23 @@ const els = {
   status: document.getElementById('status'),
 };
 
-function normalizeBaseUrl(value) {
-  return String(value || '').trim().replace(/\/+$/g, '');
-}
+const normalizeBaseUrl = Contract.normalizeBaseUrl;
 
 function setStatus(message, type = 'info') {
   els.status.textContent = message;
   els.status.style.color = type === 'error' ? '#dc2626' : type === 'success' ? '#16a34a' : '#64748b';
 }
 
-function authHeaders(token) {
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
-async function apiFetch(path, options = {}) {
-  const baseUrl = normalizeBaseUrl(els.baseUrl.value);
-  const token = String(els.token.value || '').trim();
-  if (!baseUrl) throw new Error('请先填写 StarNav 地址');
-
-  // 10s 超时：服务端/网络抖动时不让请求无限挂起（"处理中"卡死）
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
-  try {
-    const res = await fetch(`${baseUrl}${path}`, {
-      ...options,
-      signal: controller.signal,
-      headers: {
-        ...authHeaders(token),
-        ...(options.headers || {}),
-      },
-    });
-
-    const text = await res.text();
-    let data = null;
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      data = { raw: text };
-    }
-
-    if (!res.ok) throw new Error(data?.message || data?.error || `请求失败：HTTP ${res.status}`);
-    return data;
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      throw new Error('连接超时（10 秒），请检查网络或服务端状态');
-    }
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
+// 配置读取薄壳：契约 apiFetch 负责传输（拼 URL/鉴权/超时/抛错语义），
+// options 既有语义：10s 超时（服务端/网络抖动时不让请求无限挂起）
+function apiFetch(path, options = {}) {
+  return Contract.apiFetch(path, {
+    baseUrl: els.baseUrl.value,
+    token: String(els.token.value || '').trim(),
+    timeoutMs: 10000,
+    ...options,
+  });
 }
 
 function resolveUrl(baseUrl, value) {
@@ -153,7 +121,7 @@ async function loadOptions() {
   els.token.value = syncData.token || '';
   els.defaultCategory.value = syncData.defaultCategory || '';
   els.defaultTags.value = syncData.defaultTags || '';
-  if (els.browseCacheMinutes) els.browseCacheMinutes.value = String(syncData.browseCacheMinutes != null ? syncData.browseCacheMinutes : 5);
+  if (els.browseCacheMinutes) els.browseCacheMinutes.value = String(syncData.browseCacheMinutes != null ? syncData.browseCacheMinutes : Contract.BROWSE_CACHE_DEFAULT_MINUTES);
 
   renderDatalist(els.categoryList, localData.categories || [], (item) => item.name || item.catelog || item);
   renderDatalist(els.tagList, localData.tags || [], (item) => item.name || item.tag || item);
@@ -177,7 +145,7 @@ async function saveOptions({ silent = false } = {}) {
     token,
     defaultCategory,
     defaultTags,
-    browseCacheMinutes: Number(els.browseCacheMinutes?.value != null ? els.browseCacheMinutes.value : 5),
+    browseCacheMinutes: Number(els.browseCacheMinutes?.value != null ? els.browseCacheMinutes.value : Contract.BROWSE_CACHE_DEFAULT_MINUTES),
   });
   const iconSynced = await syncExtensionIcon({ silent: true });
   if (!silent) setStatus('设置已保存，插件图标已尝试同步。', 'success');
@@ -201,7 +169,7 @@ async function testConnection() {
     token,
     defaultCategory,
     defaultTags,
-    browseCacheMinutes: Number(els.browseCacheMinutes?.value != null ? els.browseCacheMinutes.value : 5),
+    browseCacheMinutes: Number(els.browseCacheMinutes?.value != null ? els.browseCacheMinutes.value : Contract.BROWSE_CACHE_DEFAULT_MINUTES),
   });
 
   // 三个只读接口并行（各带 10s 超时），最快路径 = 最慢的一个接口

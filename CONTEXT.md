@@ -74,3 +74,7 @@ _Avoid_: 规范化 URL、url_key
 **站内书签浏览 (In-Site Browsing)**:
 在浏览器插件弹窗中浏览 StarNav 站内书签——搜索、分类筛选、列表点击打开，无需打开网站。与「浏览器书签」严格区分：浏览读的是站内数据，一键同步读的是浏览器收藏夹。点击书签直接打开原始 URL（外部新标签），不经过站内 `/go` 跳转，故不计数。
 _Avoid_: 收藏夹浏览、插件浏览
+
+**全量缓存 (Full Cache)**:
+插件站内浏览的本地缓存格式（`browse:cache:v1`）：`{ kind: 'full', fetchedAt, ttlMinutes, items, total, categories }`，存于 `chrome.storage.local`，popup 与 background 共用（预热写入、浏览渲染、图标补全本地 patch 同一份数据）。形状/键名契约由 `extension-contract.js` 持有，形状判定与过滤分页逻辑在 `popup-logic.js`。旧格式（无 `kind: 'full'`）视为无效、首次打开重建。
+_Avoid_: 浏览缓存、缓存格式

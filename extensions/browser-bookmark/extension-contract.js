@@ -1,0 +1,122 @@
+// 插件跨文件契约（extension contract）：全量缓存键/形状常量、消息类型、存储键、
+// 配置键清单、HTTP 客户端（apiFetch）、收藏载荷构建（buildCollectPayload）。
+// 不碰 DOM / chrome API，可被 node:test 直接测试（tests/extension-contract.test.js）。
+// 以 UMD 挂载：浏览器经典 script 下挂 globalThis.Contract，node 下走 module.exports。
+// 形状守卫（isFullBrowseCache）与分类树展平（flattenCategoryTree）属浏览决策逻辑，
+// 留在 popup-logic.js（background 经 importScripts 同时加载两个文件）。
+(function (global) {
+  'use strict';
+
+  // ── 全量缓存契约（browse:cache:v1）───────────────────────────────
+  const BROWSE_CACHE_KEY = 'browse:cache:v1';
+  const BROWSE_CACHE_DEFAULT_MINUTES = 5;
+  // 全量缓存形状：{ kind: 'full', fetchedAt, ttlMinutes, items, total, categories }
+  const BROWSE_CACHE_FIELDS = ['kind', 'fetchedAt', 'ttlMinutes', 'items', 'total', 'categories'];
+
+  // ── 消息类型（popup ↔ background 消息契约）───────────────────────
+  const MESSAGE_TYPES = {
+    ENSURE_FAVICON: 'ensure-favicon',
+    SYNC_SITE_NAME: 'sync-site-name',
+  };
+
+  // ── 存储键契约 ───────────────────────────────────────────────────
+  const STORAGE_KEYS = {
+    BROWSE_CACHE: BROWSE_CACHE_KEY,
+    BROWSE_VIEW: 'browse:view:v1',
+    FAVICON_DEBUG_LAST: 'favicon:debug:last',
+  };
+
+  // ── 配置键清单（options.js 写入、popup/background 读取）──────────
+  const CONFIG_KEYS = {
+    sync: ['baseUrl', 'token', 'defaultCategory', 'defaultTags', 'siteName', 'siteIcon', 'browseCacheMinutes'],
+    local: ['categories', 'tags', 'metadataUpdatedAt'],
+  };
+
+  function normalizeBaseUrl(value) {
+    return String(value || '').trim().replace(/\/+$/g, '');
+  }
+
+  /**
+   * 统一 API 客户端：拼 URL、鉴权头、可选超时、非 JSON 兜底。
+   * !ok 时抛错并附带 error.status / error.data（错误文案：data.message || data.error || HTTP 状态）。
+   * 默认无超时；传 timeoutMs 时超时抛错保留 name='AbortError'（调用方可区分超时与网络错误），
+   * message 为「连接超时（N 秒），请检查网络或服务端状态」。
+   *
+   * @param {string} path 以 / 开头的接口路径
+   * @param {{ baseUrl?: string, token?: string, timeoutMs?: number, method?: string, body?: string, headers?: object, signal?: AbortSignal }} options
+   */
+  async function apiFetch(path, { baseUrl, token = '', timeoutMs = 0, ...fetchOptions } = {}) {
+    const normalized = normalizeBaseUrl(baseUrl);
+    if (!normalized) throw new Error('请先填写 StarNav 地址');
+    const controller = timeoutMs > 0 ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    try {
+      const res = await fetch(`${normalized}${path}`, {
+        ...fetchOptions,
+        signal: controller ? controller.signal : fetchOptions.signal,
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(fetchOptions.body ? { 'Content-Type': 'application/json' } : {}),
+          ...(fetchOptions.headers || {}),
+        },
+      });
+      const text = await res.text();
+      let data = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = { raw: text };
+      }
+      if (!res.ok) {
+        const error = new Error(data?.message || data?.error || `请求失败：HTTP ${res.status}`);
+        error.status = res.status;
+        error.data = data;
+        throw error;
+      }
+      return data;
+    } catch (error) {
+      if (controller && error && error.name === 'AbortError') {
+        const timeoutError = new Error(`连接超时（${timeoutMs / 1000} 秒），请检查网络或服务端状态`);
+        timeoutError.name = 'AbortError';
+        throw timeoutError;
+      }
+      throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /**
+   * 收藏载荷构建：popup 表单保存与 background 右键收藏共用同一载荷形状。
+   * 默认值对齐 popup getPayload：catelog 空回退「未分类」、visibility 默认 public。
+   */
+  function buildCollectPayload({ name = '', url = '', catelog = '', desc = '', visibility = 'public', logo = '', tags = '' } = {}) {
+    return {
+      name: String(name || '').trim(),
+      url: String(url || '').trim(),
+      desc: String(desc || '').trim(),
+      catelog: String(catelog || '').trim() || '未分类',
+      tags: Array.isArray(tags) ? tags : String(tags || '').trim(),
+      visibility: visibility || 'public',
+      logo: String(logo || '').trim(),
+    };
+  }
+
+  const Contract = {
+    BROWSE_CACHE_KEY,
+    BROWSE_CACHE_DEFAULT_MINUTES,
+    BROWSE_CACHE_FIELDS,
+    MESSAGE_TYPES,
+    STORAGE_KEYS,
+    CONFIG_KEYS,
+    normalizeBaseUrl,
+    apiFetch,
+    buildCollectPayload,
+  };
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = Contract;
+  } else {
+    global.Contract = Contract;
+  }
+})(typeof self !== 'undefined' ? self : globalThis);
