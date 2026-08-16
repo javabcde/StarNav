@@ -1,5 +1,6 @@
 import {
   WEEKDAY_NAMES,
+  apiJson,
   escapeText,
   formatBytes,
   formatPeak,
@@ -15,14 +16,12 @@ import {
   syncStatPill,
   webdavStatusText,
 } from '../../clientLogic.js';
-import { isDeadSite, isUnknownSite } from '../../../services/healthQuery.js';
 
 export const adminJs = `
-const IS_DEAD_SITE=${isDeadSite.toString()};
-const IS_UNKNOWN_SITE=${isUnknownSite.toString()};
 // 客户端纯逻辑单一源：经 ../clientLogic.js toString() 生成期内联（2026-08-16 架构评审候选 2），
 // 同一份源码被 node:test 直接单测；禁止在模板内手写镜像副本。
 const escapeHTML=${escapeText.toString()};
+const apiJson=${apiJson.toString()};
 const normalizeUrl=${normalizeClientUrl.toString()};
 const heatLevel=${heatLevel.toString()};
 const formatPeak=${formatPeak.toString()};
@@ -61,7 +60,6 @@ function setText(id,value){const el=$(id);if(el)el.textContent=value}
 function renderTableState(tbody,colspan,icon,title,desc){tbody.innerHTML='<tr><td colspan="'+colspan+'" class="empty-state"><div class="empty-icon">'+icon+'</div><strong>'+escapeHTML(title)+'</strong><p>'+escapeHTML(desc||'')+'</p></td></tr>'}
 function setTableLoading(tbody,colspan,text){tbody.innerHTML='<tr><td colspan="'+colspan+'" class="loading-state"><span class="loading-spinner"></span>'+escapeHTML(text||'加载中...')+'</td></tr>'}
 function setBtnLoading(btn,loading,text){if(!btn)return;if(loading){btn.dataset.oldText=btn.textContent;btn.disabled=true;btn.textContent=text||'处理中...'}else{btn.disabled=false;btn.textContent=btn.dataset.oldText||btn.textContent}}
-function apiJson(url, options={}){const method=String(options.method||'GET').toUpperCase();const fetchOptions={headers:{'Content-Type':'application/json',...(options.headers||{})},...options};const parse=async r=>{const text=await r.text();try{return JSON.parse(text)}catch(e){return{code:r.status,message:text||r.statusText||'Request failed'}}};const request=()=>fetch(url,fetchOptions).then(parse);return request().catch(error=>{if(error?.name==='AbortError'||method!=='GET'||options.signal?.aborted)throw error;return new Promise(resolve=>setTimeout(resolve,450)).then(()=>{if(options.signal?.aborted)throw error;return request()})})}
 function notifyFrontRefresh(reason){try{localStorage.setItem('nav:front-refresh',JSON.stringify({reason,time:Date.now()}));console.log('[sync] notify front refresh',reason)}catch(e){console.warn('[sync] notify failed',e)}}
 notifyFrontRefresh('admin-opened');
 $('logoutForm')?.addEventListener('submit',(e)=>{e.preventDefault();fetch('/admin/logout',{method:'POST',credentials:'same-origin'}).finally(()=>{notifyFrontRefresh('admin-logout');window.location.href='/admin'})});

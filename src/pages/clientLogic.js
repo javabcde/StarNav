@@ -200,3 +200,26 @@ export function normalizeAiAdminItems(type, data) {
   }
   return { items: items, total: 0 };
 }
+
+// 后台统一 API 客户端：非 JSON 兜底解析、GET 失败静默重试（450ms 间隔，Abort 中断不重试）。
+// 引用 fetch/setTimeout 浏览器全局，node 测试 mock globalThis.fetch。
+export function apiJson(url, options = {}) {
+  const method = String(options.method || 'GET').toUpperCase();
+  const fetchOptions = { headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options };
+  const parse = async (r) => {
+    const text = await r.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return { code: r.status, message: text || r.statusText || 'Request failed' };
+    }
+  };
+  const request = () => fetch(url, fetchOptions).then(parse);
+  return request().catch((error) => {
+    if (error?.name === 'AbortError' || method !== 'GET' || options.signal?.aborted) throw error;
+    return new Promise((resolve) => setTimeout(resolve, 450)).then(() => {
+      if (options.signal?.aborted) throw error;
+      return request();
+    });
+  });
+}
