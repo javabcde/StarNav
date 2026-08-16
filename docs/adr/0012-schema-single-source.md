@@ -9,6 +9,8 @@ runMigration 含 `idx_sites_category`，schema.sql 缺。运行时迁移内容�
 
 Status: accepted
 
+## 决策要点
+
 - **单一源**：migrationService.js 持有 `TABLE_CREATE_SQL`（11 张表，含文档注释）、按表分组的
 
   `*_ENSUREMENTS`（spaces/sites/pending_sites/categories，顺序即运行时执行顺序）、`PRE_INDEX_SQL`/
