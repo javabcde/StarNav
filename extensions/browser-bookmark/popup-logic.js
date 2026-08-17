@@ -178,7 +178,11 @@
     return out;
   }
 
-  // 展平分类树为 [{ name, level }]（跳过空名；子分类 level+1）
+  // 直属书签聚合节点（ADR-0013）：有子分类且自身有直属书签的分类，在子分类之后
+  // 合成虚拟节点（不建分类行、不改数据）；点击后只显示该分类直属书签（双键 (catelog, direct)）。
+  const DIRECT_BOOKMARKS_LABEL = '直属书签';
+
+  // 展平分类树为 [{ name, level }]（跳过空名；子分类 level+1；直属书签节点带 direct/parent）
   function flattenCategoryTree(nodes, level, out) {
     const acc = out || [];
     for (const node of nodes || []) {
@@ -186,6 +190,10 @@
       acc.push({ name: String(node.name).trim(), level: level || 0 });
       if (Array.isArray(node.children) && node.children.length) {
         flattenCategoryTree(node.children, (level || 0) + 1, acc);
+        // 子分类之后：直属书签聚合节点（父分类自身挂直属书签时）
+        if (Number(node.site_count || 0) > 0) {
+          acc.push({ name: DIRECT_BOOKMARKS_LABEL, level: (level || 0) + 1, direct: true, parent: String(node.name).trim() });
+        }
       }
     }
     return acc;
@@ -207,32 +215,32 @@
     const stack = [{ name: '', level: -1, children: root }];
     for (const c of flat || []) {
       while (stack.length && stack[stack.length - 1].level >= c.level) stack.pop();
-      const node = { name: c.name, level: c.level, children: [] };
+      const node = { name: c.name, level: c.level, direct: Boolean(c.direct), parent: c.parent || '', children: [] };
       stack[stack.length - 1].children.push(node);
       stack.push(node);
     }
     return root;
   }
-
   /**
    * 收集展开节点的子分类，按父分类分组（数据层，不含 HTML）。
    * @param {Array} tree buildCategoryTree 的结果
    * @param {Set<string>} expanded
    * @param {string} activeName 当前筛选分类
-   * @returns {Array<{name: string, items: Array<{name: string, level: number, hasChildren: boolean, expanded: boolean, active: boolean}>}>}
+   * @param {boolean} activeDirect 当前视图是否「直属书签」视图（ADR-0013 双键）
+   * @returns {Array<{name: string, items: Array<{name: string, level: number, hasChildren: boolean, expanded: boolean, active: boolean, direct?: boolean, parent?: string}>}>}
    */
-  function collectCategoryGroups(tree, expanded, activeName) {
+  function collectCategoryGroups(tree, expanded, activeName, activeDirect) {
     const groups = [];
     for (const node of tree || []) {
       if (!node.children.length || !expanded.has(node.name)) continue;
       const items = [];
-      for (const child of node.children) collectChildItems(child, items, 0, expanded, activeName);
+      for (const child of node.children) collectChildItems(child, items, 0, expanded, activeName, activeDirect);
       groups.push({ name: node.name, items });
     }
     return groups;
   }
 
-  function collectChildItems(child, out, level, expanded, activeName) {
+  function collectChildItems(child, out, level, expanded, activeName, activeDirect) {
     const hasChildren = child.children.length > 0;
     const isExpanded = hasChildren && expanded.has(child.name);
     out.push({
@@ -240,35 +248,41 @@
       level,
       hasChildren,
       expanded: isExpanded,
-      active: activeName === child.name,
+      direct: Boolean(child.direct),
+      parent: child.parent || '',
+      active: child.direct ? Boolean(activeDirect && activeName === child.parent) : activeName === child.name,
     });
     if (isExpanded) {
-      for (const grand of child.children) collectChildItems(grand, out, level + 1, expanded, activeName);
+      for (const grand of child.children) collectChildItems(grand, out, level + 1, expanded, activeName, activeDirect);
     }
   }
 
+
   // ── 浏览视图状态（viewState 纯函数组）────────────────────────────
-  // 视图状态 = { catelog, keyword, sort, page }；popup.js 持有状态对象，
+  // 视图状态 = { catelog, keyword, sort, page, direct }；direct = 直属书签视图
+  // （ADR-0013 双键 (catelog, direct)）；popup.js 持有状态对象，
   // 每次变更经纯 transition 返回新状态再渲染（IO/副作用句柄留 DOM 层）。
 
   function defaultBrowseView() {
-    return { catelog: '', keyword: '', sort: '', page: 1 };
+    return { catelog: '', keyword: '', sort: '', page: 1, direct: false };
   }
 
   /**
    * 筛选/搜索/排序变更：只改传入字段，其余保持，页码重置为 1。
-   * @param {{catelog?: string, keyword?: string, sort?: string, page?: number}} view
-   * @param {{catelog?: string, keyword?: string, sort?: string}} next 传入的字段生效，缺省保持
+   * direct 显式传入布尔时生效（点分类/直属节点切换视图），否则保持原值
+   * （关键词/排序变更不退出直属视图）。
+   * @param {{catelog?: string, keyword?: string, sort?: string, page?: number, direct?: boolean}} view
+   * @param {{catelog?: string, keyword?: string, sort?: string, direct?: boolean}} next 传入的字段生效，缺省保持
    */
   function applyBrowseFilter(view, next) {
     return {
       catelog: String(next.catelog ?? view.catelog ?? ''),
       keyword: String(next.keyword ?? view.keyword ?? ''),
       sort: String(next.sort ?? view.sort ?? ''),
+      direct: typeof next.direct === 'boolean' ? next.direct : Boolean(view.direct),
       page: 1,
     };
   }
-
   /** 分页转移：页码下限 1。 */
   function applyBrowsePage(view, page) {
     return { ...view, page: Math.max(1, Number(page) || 1) };
@@ -288,6 +302,7 @@
         catelog: String(saved.catelog || ''),
         keyword: String(saved.keyword || ''),
         sort: String(saved.sort || ''),
+        direct: Boolean(saved.direct),
       };
     } catch {
       return null;

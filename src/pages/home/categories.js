@@ -81,7 +81,7 @@ export function getCategoryCssColor(value) {
 }
 
 export function renderCategoryLinks(nodes, options, level = 0) {
-  const { catalog, catalogExists, expandedNames, privateUnlocked, privateBookmarksVisible } = options;
+  const { catalog, catalogExists, expandedNames, privateUnlocked, privateBookmarksVisible, direct, directLabel } = options;
   return nodes.filter((cat) => privateBookmarksVisible || privateUnlocked || !isPrivateBookmarkCategory(cat.name)).map((cat) => {
     const safeName = escapeHTML(cat.name);
     const active = false; // This will be handled by JS
@@ -102,8 +102,24 @@ export function renderCategoryLinks(nodes, options, level = 0) {
     if (cat.color) titleParts.push(`颜色：${cat.color}`);
     const title = escapeHTML(titleParts.join(' · '));
     const childId = `category-children-${String(cat.id).replace(/[^a-zA-Z0-9_-]/g, '')}`;
+    // 直属书签聚合节点（ADR-0013）：有子分类且自身有直属书签时，在子分类之后合成
+    // 虚拟「直属书签」节点（不建分类行、不改数据）；点击只显示该分类直属书签（?catalog=X&direct=1）。
+    const directNode = hasChildren && Number(cat.child_count || 0) > 0 && Number(cat.site_count || 0) > 0
+      ? (() => {
+        const directLink = new URLSearchParams({ catalog: cat.name, direct: '1' });
+        const directActive = options.catalog === cat.name && direct;
+        const label = escapeHTML(directLabel || '直属书签');
+        return `<div class="category-tree-node" data-level="${level + 1}" data-direct-node="1">
+      <div class="flex items-center gap-1">
+        <a href="?${directLink.toString()}" class="category-link flex min-w-0 flex-1 items-center px-3 py-2 rounded-lg hover:bg-gray-100${directActive ? ' category-active' : ''}" data-category-name="${escapeHTML(cat.name)}" data-direct="1" style="padding-left:${12 + (level + 1) * 14}px">
+          <span class="truncate">${label}</span>
+        </a>
+      </div>
+    </div>`;
+      })()
+      : '';
     const childMarkup = hasChildren
-      ? `<div id="${childId}" class="${expanded ? '' : 'hidden'} mt-1 space-y-1">${renderCategoryLinks(cat.children, options, level + 1)}</div>`
+      ? `<div id="${childId}" class="${expanded ? '' : 'hidden'} mt-1 space-y-1">${renderCategoryLinks(cat.children, options, level + 1)}${directNode}</div>`
       : '';
     const link = new URLSearchParams({ catalog: cat.name });
 

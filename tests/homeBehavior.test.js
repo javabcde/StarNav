@@ -72,6 +72,10 @@ function fullSite(overrides = {}) {
   };
 }
 
+function categoryRow(overrides = {}) {
+  return { id: 1, name: '工具', parent_id: null, sort_order: 1, icon: null, color: null, description: null, site_count: 0, child_count: 0, ...overrides };
+}
+
 test('renderHomePage：私人书签分类未解锁渲染解锁框（不渲染书签卡片）', async () => {
   const env = createMockEnv({ categories: [PRIVATE_CATEGORY], sites: [fullSite({ catelog: '私人书签', visibility: 'private' })] });
   const response = await renderHomePage(new Request('https://nav.example.com/?catalog=%E7%A7%81%E4%BA%BA%E4%B9%A6%E7%AD%BE'), env, {});
@@ -136,4 +140,60 @@ test('renderHomePage：排序热门时标题显示热门书签且按 hits 降序
   const secondCard = html.indexOf('data-id="2"');
   assert.ok(firstCard !== -1 && secondCard !== -1, '两张卡片都应渲染');
   assert.ok(firstCard < secondCard, 'hot 排序应按 hits 降序（5 在 3 前）');
+});
+
+test('侧边栏：有子分类且自身有直属书签的父分类合成「直属书签」节点（ADR-0013）', async () => {
+  const env = createMockEnv({
+    categories: [
+      categoryRow({ id: 1, name: '前端', site_count: 1, child_count: 2 }),
+      categoryRow({ id: 2, name: 'React', parent_id: 1, site_count: 1 }),
+      categoryRow({ id: 3, name: 'Vue', parent_id: 1, site_count: 1 }),
+    ],
+    sites: [
+      fullSite({ id: 101, name: 'React文档', url: 'https://react.example.com', catelog: 'React' }),
+      fullSite({ id: 102, name: '框架官网', url: 'https://framework.example.com', catelog: '前端' }),
+    ],
+  });
+  const response = await renderHomePage(new Request('https://nav.example.com/?catalog=%E5%89%8D%E7%AB%AF'), env, {});
+  const html = await response.text();
+
+  assert.ok(html.includes('data-direct-node="1"'), '有子分类且自身有直属书签的父分类应合成直属节点');
+  assert.ok(html.includes('data-direct="1"'), '节点链接应带 direct 标记（data-direct）');
+  assert.ok(html.includes('直属书签'), '节点文案应来自 i18n directBookmarks');
+  const vueAt = html.indexOf('data-category-name="Vue"');
+  const directAt = html.indexOf('data-direct-node="1"');
+  assert.ok(vueAt !== -1 && directAt !== -1 && vueAt < directAt, '直属节点应排在真实子分类之后');
+});
+
+test('侧边栏：叶子分类或无直属书签的父分类不合成直属节点', async () => {
+  const env = createMockEnv({
+    categories: [
+      categoryRow({ id: 1, name: '知识', site_count: 3 }),
+      categoryRow({ id: 2, name: '工具', site_count: 0, child_count: 1 }),
+      categoryRow({ id: 3, name: '开发', parent_id: 2, site_count: 2 }),
+    ],
+    sites: [fullSite({ catelog: '知识' }), fullSite({ id: 2, name: 'B', url: 'https://b.example.com', catelog: '开发' })],
+  });
+  const response = await renderHomePage(new Request('https://nav.example.com/'), env, {});
+  const html = await response.text();
+  assert.ok(!html.includes('data-direct-node="1"'), '叶子分类（有直属但无子分类）不应有直属节点');
+  assert.ok(!html.includes('data-direct="1"'), '无直属书签的父分类不应有直属节点');
+});
+
+test('?catalog=X&direct=1：只显示该分类直属书签，不含子孙分类书签', async () => {
+  const env = createMockEnv({
+    categories: [
+      categoryRow({ id: 1, name: '前端', site_count: 1, child_count: 2 }),
+      categoryRow({ id: 2, name: 'React', parent_id: 1, site_count: 1 }),
+      categoryRow({ id: 3, name: 'Vue', parent_id: 1, site_count: 1 }),
+    ],
+    sites: [
+      fullSite({ id: 101, name: 'React文档', url: 'https://react.example.com', catelog: 'React' }),
+      fullSite({ id: 102, name: '框架官网', url: 'https://framework.example.com', catelog: '前端' }),
+    ],
+  });
+  const response = await renderHomePage(new Request('https://nav.example.com/?catalog=%E5%89%8D%E7%AB%AF&direct=1'), env, {});
+  const html = await response.text();
+  assert.ok(html.includes('框架官网'), '直属书签应显示');
+  assert.ok(!html.includes('React文档'), '子分类书签不应显示（direct 视图不走子孙闭包）');
 });

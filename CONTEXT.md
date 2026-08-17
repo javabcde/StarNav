@@ -102,6 +102,20 @@ _Avoid_: 站点基础服务、共享 helper 层
 设置存储值（字符串 'true'/'1'/'yes'/'on' 等）到布尔字符串的归一语义，单一持有在 `lib/utils.js`：宽松版 `boolString`（backup/sys settings 域共用，'1'/'true'/'yes'/'on' 均视为 true，空值回退 fallback）、严格版 `strictBoolString`（AI 设置域，仅字面量 'true' 视为 true，未知值不激活功能）。禁止在设置域内再写第三份判定。
 _Avoid_: parseBool、布尔解析
 
+## 分类域
+
+**直属书签 (Direct Bookmark)**:
+直接归属于某分类的书签（`category_id` 指向该分类，或 `catelog` 等于该分类名），与「经分类子孙闭包可见的书签」相对。归属层级轴上的概念，与「同步书签/手动书签」（数据来源轴）正交——直属书签可以是同步来源也可以是手动。
+_Avoid_: 父分类书签、直属站点、直系书签
+
+**分类子孙闭包 (Category Descendant Closure)**:
+按分类过滤时的语义：目标分类 + 其全部子孙分类的书签集合。首页渲染路径（`collectCategoryWithDescendants` 内存树遍历）与 API/搜索路径（`getDescendantCategoryNames` SQL 递归 CTE）双实现同源收编在 `categoryService.js`；消费方禁止手写第三份。
+_Avoid_: 分类聚合、父分类包含、子孙集合
+
+**直属书签聚合节点 (Direct Bookmark Aggregate Node)**:
+有子分类且自身有直属书签的分类下，渲染时合成的虚拟「直属书签」子节点（不建真实分类行、不改数据）；点击后按「(分类, 直属)」双键过滤只显示该分类的直属书签。虚拟而非真实分类，避免与浏览器书签同步对齐打架（决策见 ADR-0013）。
+_Avoid_: 自动分类、未分类节点、直属文件夹
+
 ## 页面客户端
 
 **客户端纯逻辑 (Client Pure Logic)**:

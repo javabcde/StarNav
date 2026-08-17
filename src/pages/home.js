@@ -30,6 +30,9 @@ export async function renderHomePage(request, env, ctx) {
   const { lang, dir, t, th } = i18n;
   const url = new URL(request.url);
   const catalog = (url.searchParams.get('catalog') || '').trim();
+  // 直属书签视图：分类下自动合成的「直属书签」节点（ADR-0013）——只显示该分类直属书签，
+  // 不走子孙闭包；无 catalog 时忽略。
+  const directOnly = catalog && url.searchParams.get('direct') === '1';
   const requestedSort = (url.searchParams.get('sort') || '').trim();
   const sortMode = ['hot', 'recent'].includes(requestedSort) ? requestedSort : '';
   const tagFilter = (url.searchParams.get('tag') || '').trim();
@@ -90,7 +93,7 @@ export async function renderHomePage(request, env, ctx) {
     : new Set();
   if (catalogExists && catalogNames.size === 0) catalogNames.add(catalog); // 兜底精确匹配（旧数据无分类记录）
   const baseCurrentSites = catalogExists
-    ? (privateCatalogLocked ? [] : visibleSites.filter((site) => catalogNames.has(site.catelog)))
+    ? (privateCatalogLocked ? [] : visibleSites.filter((site) => (directOnly ? site.catelog === catalog : catalogNames.has(site.catelog))))
     : visibleSites;
   const taggedCurrentSites = tagFilter
     ? baseCurrentSites.filter((site) => Array.isArray(site.tags) && site.tags.includes(tagFilter))
@@ -122,15 +125,16 @@ export async function renderHomePage(request, env, ctx) {
     markdown: systemSettings.announcementMarkdown || '',
     version: systemSettings.announcementVersion || '1',
     showOnce: systemSettings.announcementShowOnce !== 'false',
-    buttonText: systemSettings.announcementButtonText || '我知道了',
+    buttonText: '我知道了',
   };
-
   const categoryLinks = renderCategoryLinks(categoryTree, {
     catalog,
     catalogExists,
     expandedNames: new Set(catalogExists ? getAncestorNames(categoryTree, catalog) : []),
     privateUnlocked,
     privateBookmarksVisible,
+    direct: directOnly,
+    directLabel: th('directBookmarks'),
   });
 
 

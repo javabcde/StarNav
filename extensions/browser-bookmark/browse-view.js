@@ -252,8 +252,9 @@
         showBrowseInitState();
         return;
       }
+      // 直属书签视图（ADR-0013 双键）：只按分类自身过滤，不走子孙闭包
       const catelogNames = browseState.catelog
-        ? BrowseLogic.collectCategoryNames(browseCategories, browseState.catelog)
+        ? (browseState.direct ? new Set([browseState.catelog]) : BrowseLogic.collectCategoryNames(browseCategories, browseState.catelog))
         : null;
       const filtered = BrowseLogic.filterBrowseItems(browseState.cacheItems, browseState, catelogNames);
       browseState.total = filtered.length;
@@ -298,6 +299,7 @@
           catelog: browseState.catelog,
           keyword: browseState.keyword,
           sort: browseState.sort,
+          direct: browseState.direct,
           ts: Date.now(),
         }));
       } catch {
@@ -311,6 +313,7 @@
         browseState.catelog = saved.catelog;
         browseState.keyword = saved.keyword;
         browseState.sort = saved.sort;
+        browseState.direct = Boolean(saved.direct);
         // 存储不可用（隐私模式等）时保持默认视图
       } catch {
         // 解析失败用默认视图
@@ -338,7 +341,9 @@
     // 子分类按钮 HTML（数据来自 BrowseLogic.collectCategoryGroups）
     function renderChildCategoryItem(item) {
       const indent = `${(item.level + 1) * 16}px`;
-      const btn = `<button type="button" class="browse-cat browse-cat-child${item.active ? ' active' : ''}" data-cat="${escapeHTML(item.name)}" style="margin-left:${indent}">${FOLDER_ICON_SVG}${escapeHTML(item.name)}</button>`;
+      // 直属书签聚合节点（ADR-0013）：data-direct/data-parent 双键，点击后只显示父分类直属书签
+      const directAttrs = item.direct ? ` data-direct="1" data-parent="${escapeHTML(item.parent)}"` : '';
+      const btn = `<button type="button" class="browse-cat browse-cat-child${item.active ? ' active' : ''}" data-cat="${escapeHTML(item.name)}"${directAttrs} style="margin-left:${indent}">${FOLDER_ICON_SVG}${escapeHTML(item.name)}</button>`;
       return item.hasChildren
         ? `<span class="browse-cat-row">${btn}<button type="button" class="browse-cat-toggle" data-expand="${escapeHTML(item.name)}" title="${item.expanded ? '收起子分类' : '展开子分类'}">${item.expanded ? '▾' : '▸'}</button></span>`
         : btn;
@@ -357,7 +362,7 @@
 
       els.browseCats.innerHTML = tree.map((node) => renderCategoryRow(node)).join('');
 
-      const groups = BrowseLogic.collectCategoryGroups(tree, expandedCategories, browseState.catelog);
+      const groups = BrowseLogic.collectCategoryGroups(tree, expandedCategories, browseState.catelog, browseState.direct);
       els.browseCatChildren.innerHTML = groups.map((group) => `
         <div class="browse-cat-group">
           <div class="browse-cat-group-label">${FOLDER_ICON_SVG}${escapeHTML(group.name)}</div>
@@ -370,11 +375,13 @@
         for (const btn of root.querySelectorAll('.browse-cat')) {
           btn.addEventListener('click', () => {
             const cat = btn.dataset.cat || '';
-            if (browseState.catelog === cat) return;
+            const direct = btn.dataset.direct === '1';
+            const parent = btn.dataset.parent || '';
+            if (browseState.catelog === cat && Boolean(browseState.direct) === direct) return;
             // 手风琴语义：点任意分类按钮都收起当前展开（与点箭头一致）；
             // 若点击的是子分类，renderCategories 会按祖先链自动恢复其父的展开
             expandedCategories.clear();
-            Object.assign(browseState, BrowseLogic.applyBrowseFilter(browseState, { catelog: cat }));
+            Object.assign(browseState, BrowseLogic.applyBrowseFilter(browseState, direct ? { catelog: parent, direct: true } : { catelog: cat, direct: false }));
             renderCategories();
             // 客户端过滤（守卫：缓存未就绪先触发全量拉取）
             ensureBrowseCache().then(() => applyBrowseView()).catch(() => {});

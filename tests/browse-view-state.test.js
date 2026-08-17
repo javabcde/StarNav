@@ -27,16 +27,18 @@ const FLAT = [
   { name: '工具', level: 1 },
 ];
 
-test('defaultBrowseView：空筛选、空关键词、空排序、第一页', () => {
-  assert.deepEqual(defaultBrowseView(), { catelog: '', keyword: '', sort: '', page: 1 });
+test('defaultBrowseView：空筛选、空关键词、空排序、第一页、direct 关', () => {
+  assert.deepEqual(defaultBrowseView(), { catelog: '', keyword: '', sort: '', page: 1, direct: false });
 });
 
-test('applyBrowseFilter：只改传入字段，其余保持，页码重置 1', () => {
-  const base = { catelog: '前端', keyword: 'a', sort: 'hot', page: 3 };
-  assert.deepEqual(applyBrowseFilter(base, { catelog: '工具' }), { catelog: '工具', keyword: 'a', sort: 'hot', page: 1 });
-  assert.deepEqual(applyBrowseFilter(base, { keyword: '' }), { catelog: '前端', keyword: '', sort: 'hot', page: 1 });
-  assert.deepEqual(applyBrowseFilter(base, { sort: 'recent' }), { catelog: '前端', keyword: 'a', sort: 'recent', page: 1 });
-  assert.deepEqual(applyBrowseFilter(base, {}), { catelog: '前端', keyword: 'a', sort: 'hot', page: 1 });
+test('applyBrowseFilter：只改传入字段，其余保持，页码重置 1；direct 显式才切换', () => {
+  const base = { catelog: '前端', keyword: 'a', sort: 'hot', page: 3, direct: false };
+  assert.deepEqual(applyBrowseFilter(base, { catelog: '工具' }), { catelog: '工具', keyword: 'a', sort: 'hot', page: 1, direct: false });
+  assert.deepEqual(applyBrowseFilter(base, { keyword: '' }), { catelog: '前端', keyword: '', sort: 'hot', page: 1, direct: false });
+  assert.deepEqual(applyBrowseFilter(base, { sort: 'recent' }), { catelog: '前端', keyword: 'a', sort: 'recent', page: 1, direct: false });
+  assert.deepEqual(applyBrowseFilter(base, {}), { catelog: '前端', keyword: 'a', sort: 'hot', page: 1, direct: false });
+  const direct = applyBrowseFilter(base, { catelog: '工具', direct: true });
+  assert.deepEqual(applyBrowseFilter(direct, { keyword: 'x' }), { catelog: '工具', keyword: 'x', sort: 'hot', page: 1, direct: true });
 });
 
 test('applyBrowsePage：页码下限 1，非法值回退 1', () => {
@@ -48,10 +50,11 @@ test('applyBrowsePage：页码下限 1，非法值回退 1', () => {
   assert.equal(applyBrowsePage(base, 2).catelog, '前端');
 });
 
-test('deserializeView：合法 JSON 强转三字段', () => {
-  const view = deserializeView(JSON.stringify({ catelog: '前端', keyword: 'a', sort: 'hot', ts: 123 }));
-  assert.deepEqual(view, { catelog: '前端', keyword: 'a', sort: 'hot' });
+test('deserializeView：合法 JSON 强转字段 + direct 布尔', () => {
+  const view = deserializeView(JSON.stringify({ catelog: '前端', keyword: 'a', sort: 'hot', ts: 123, direct: true }));
+  assert.deepEqual(view, { catelog: '前端', keyword: 'a', sort: 'hot', direct: true });
   assert.equal(deserializeView(JSON.stringify({ catelog: 42, keyword: null, sort: undefined })).catelog, '42');
+  assert.equal(deserializeView(JSON.stringify({ catelog: '前端', direct: false })).direct, false);
 });
 
 test('deserializeView：非法输入回退 null（默认视图）', () => {

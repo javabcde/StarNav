@@ -321,7 +321,10 @@ document.addEventListener('DOMContentLoaded',function(){
     const listEl = document.getElementById('categoryList');
     if (!listEl) return;
     let pendingLink = null;
-    const currentCatalog = new URLSearchParams(window.location.search).get('catalog') || '';
+    const currentParams = new URLSearchParams(window.location.search);
+    const currentCatalog = currentParams.get('catalog') || '';
+    // 直属书签聚合节点（ADR-0013）：direct=1 视图高亮虚拟节点，父分类链接不高亮
+    const currentDirect = currentParams.get('direct') === '1';
 
     function clearPending() {
       if (pendingLink) {
@@ -333,8 +336,10 @@ document.addEventListener('DOMContentLoaded',function(){
     function updateActiveState() {
       const links = listEl.querySelectorAll('a[href^="?"]');
       links.forEach(link => {
-        const linkCatalog = new URLSearchParams(link.search).get('catalog') || '';
-        link.classList.toggle('category-active', linkCatalog === currentCatalog);
+        const linkParams = new URLSearchParams(link.search);
+        const linkCatalog = linkParams.get('catalog') || '';
+        const linkDirect = linkParams.get('direct') === '1';
+        link.classList.toggle('category-active', linkCatalog === currentCatalog && linkDirect === currentDirect);
       });
     }
 

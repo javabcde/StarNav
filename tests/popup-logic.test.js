@@ -30,6 +30,8 @@ const {
   normalizeCategories,
   buildCategoryTree,
   collectCategoryGroups,
+  applyBrowseFilter,
+  deserializeView,
 } = BrowseLogic;
 
 const MINUTES = 12 * 60; // 12h
@@ -391,4 +393,59 @@ test('fetchFullBrowseCache：任一拉取失败即抛错（不吞异常、不构
     /网络失败/,
     'tree 拉取失败应向上抛出',
   );
+});
+
+test('flattenCategoryTree：父分类有直属书签时在子分类之后合成「直属书签」节点（ADR-0013）', () => {
+  const tree = [
+    { name: '工具', site_count: 1, children: [
+      { name: '开发', site_count: 0, children: [
+        { name: '前端', site_count: 0, children: [] },
+      ]},
+      { name: '效率', site_count: 0, children: [] },
+    ]},
+  ];
+  assert.deepEqual(flattenCategoryTree(tree), [
+    { name: '工具', level: 0 },
+    { name: '开发', level: 1 },
+    { name: '前端', level: 2 },
+    { name: '效率', level: 1 },
+    { name: '直属书签', level: 1, direct: true, parent: '工具' },
+  ]);
+});
+
+test('flattenCategoryTree：无子分类或无直属书签不合成节点', () => {
+  assert.deepEqual(flattenCategoryTree([{ name: '知识', site_count: 5, children: [] }]), [{ name: '知识', level: 0 }]);
+  assert.deepEqual(flattenCategoryTree([{ name: '工具', site_count: 0, children: [{ name: '开发', children: [] }] }]), [
+    { name: '工具', level: 0 },
+    { name: '开发', level: 1 },
+  ]);
+});
+
+test('applyBrowseFilter：direct 显式切换生效，关键词/排序变更保持 direct', () => {
+  const base = { catelog: '', keyword: '', sort: '', page: 1, direct: false };
+  const direct = applyBrowseFilter(base, { catelog: '工具', direct: true });
+  assert.deepEqual(direct, { catelog: '工具', keyword: '', sort: '', page: 1, direct: true });
+  assert.equal(applyBrowseFilter(direct, { keyword: 'vue' }).direct, true, '关键词搜索不应退出直属视图');
+  assert.equal(applyBrowseFilter(direct, { sort: 'hot' }).direct, true, '排序变更不应退出直属视图');
+  const back = applyBrowseFilter(direct, { catelog: '开发', direct: false });
+  assert.deepEqual(back, { catelog: '开发', keyword: '', sort: '', page: 1, direct: false });
+});
+
+test('deserializeView：direct 布尔解析，旧形状缺省 false', () => {
+  assert.equal(deserializeView(JSON.stringify({ catelog: '工具', keyword: '', sort: '', direct: true })).direct, true);
+  assert.equal(deserializeView(JSON.stringify({ catelog: '工具', keyword: '', sort: '' })).direct, false, '旧持久化形状无 direct → false');
+});
+
+test('collectCategoryGroups：直属节点 active 只认双键（catelog+direct）', () => {
+  const flat = flattenCategoryTree([{ name: '工具', site_count: 1, children: [{ name: '开发', children: [] }] }]);
+  const tree = buildCategoryTree([{ name: '', level: 0 }, ...flat]);
+  const expanded = new Set(['工具']);
+  const directView = collectCategoryGroups(tree, expanded, '工具', true);
+  const directItem = directView[0].items.find((it) => it.direct);
+  assert.ok(directItem, '直属节点应出现在子分类列表中');
+  assert.equal(directItem.active, true, 'direct 视图下直属节点高亮');
+  assert.equal(directItem.parent, '工具');
+  const aggregated = collectCategoryGroups(tree, expanded, '工具', false);
+  assert.equal(aggregated[0].items.find((it) => it.direct).active, false, '聚合视图下直属节点不高亮');
+  assert.equal(aggregated[0].items.find((it) => it.name === '开发').active, false);
 });
