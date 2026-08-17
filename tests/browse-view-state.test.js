@@ -18,6 +18,7 @@ const {
   toggleCategoryInState,
   collapseChangedFilter,
   collectCategoryNames,
+  injectAncestors,
 } = BrowseLogic;
 
 const FLAT = [
@@ -104,4 +105,14 @@ test('collectCategoryNames：父分类含全部子孙名，叶子仅自身，未
   const leaf = collectCategoryNames(FLAT, 'React');
   assert.deepEqual([...leaf], ['React']);
   assert.equal(collectCategoryNames(FLAT, '不存在').size, 0);
+});
+
+test('injectAncestors：includeSelf 把分类自身加入展开集合（直属书签视图保持父分类展开）', () => {
+  const direct = injectAncestors(new Set(), '前端', FLAT, true);
+  assert.deepEqual([...direct].sort(), ['前端'], '顶层分类无祖先——direct 视图须含自身');
+  const child = injectAncestors(new Set(), 'React', FLAT, false);
+  assert.deepEqual([...child].sort(), ['前端'], '子分类注入祖先链（不含自身）');
+  const childSelf = injectAncestors(new Set(), 'React', FLAT, true);
+  assert.deepEqual([...childSelf].sort(), ['React', '前端'], 'includeSelf 时祖先 + 自身');
+  assert.equal(injectAncestors(new Set(['工具']), '前端', FLAT, true).has('前端'), false, '已有手动展开时保持现状（next.size>0 不注入）');
 });

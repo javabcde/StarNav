@@ -149,15 +149,20 @@
   /**
    * 祖先链注入（renderCategories 渲染前）：筛选分类是子分类且用户没有
    * 手动展开任何父分类时，展开其祖先链保证当前筛选按钮可见。
+   * includeSelf（ADR-0013 直属书签视图）：direct 视图下筛选键是父分类自身，
+   * 节点挂在父分类的子列表里——须把父分类自身也加入展开集合，否则组收起、
+   * 节点不可见（祖先链不含自身）。
    * @param {Set<string>} expanded
    * @param {string} catelog 当前筛选分类（可能为空）
    * @param {Array<{name: string, level: number}>} flat 扁平分类列表（含 '' 全部节点）
+   * @param {boolean} [includeSelf=false] 是否把 catelog 自身加入展开集合
    * @returns {Set<string>} 新集合
    */
-  function injectAncestors(expanded, catelog, flat) {
+  function injectAncestors(expanded, catelog, flat, includeSelf = false) {
     const next = new Set(expanded || []);
     if (catelog && next.size === 0) {
       for (const name of ancestorsOf(flat, catelog)) next.add(name);
+      if (includeSelf) next.add(catelog);
     }
     return next;
   }

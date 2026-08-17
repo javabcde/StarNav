@@ -352,12 +352,8 @@
     function renderCategories() {
       const flat = [{ name: '', level: 0 }, ...browseCategories];
       const tree = BrowseLogic.buildCategoryTree(flat);
-
-      // 当前筛选分类若是子分类，且用户没有手动展开任何父分类时，
-      // 展开其祖先链保证按钮可见；用户手动展开后尊重手风琴（只显示一个）；
-      // 手动收起后抑制注入（见 suppressAncestorInjection）
       if (!suppressAncestorInjection) {
-        expandedCategories = BrowseLogic.injectAncestors(expandedCategories, browseState.catelog, flat);
+        expandedCategories = BrowseLogic.injectAncestors(expandedCategories, browseState.catelog, flat, Boolean(browseState.direct));
       }
 
       els.browseCats.innerHTML = tree.map((node) => renderCategoryRow(node)).join('');
