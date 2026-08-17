@@ -199,13 +199,18 @@
     return acc;
   }
 
-  // 兼容旧缓存格式（扁平字符串数组 → 叶子节点）
+  // 兼容旧缓存格式（扁平字符串数组 → 叶子节点）；保留直属书签聚合节点的
+  // direct/parent 标记（ADR-0013 双键过滤依赖），其余字段仅 name/level。
   function normalizeCategories(cats) {
     if (!Array.isArray(cats)) return [];
     return cats
       .map((c) => (typeof c === 'string'
         ? { name: c.trim(), level: 0 }
-        : { name: String(c.name || '').trim(), level: Number(c.level) || 0 }))
+        : {
+          name: String(c.name || '').trim(),
+          level: Number(c.level) || 0,
+          ...(c.direct ? { direct: true, parent: String(c.parent || '') } : {}),
+        }))
       .filter((c) => c.name);
   }
 

@@ -449,3 +449,19 @@ test('collectCategoryGroups：直属节点 active 只认双键（catelog+direct�
   assert.equal(aggregated[0].items.find((it) => it.direct).active, false, '聚合视图下直属节点不高亮');
   assert.equal(aggregated[0].items.find((it) => it.name === '开发').active, false);
 });
+
+test('collectCategoryGroups：normalizeCategories 保留 direct 标记后，双键 active 仍生效（插件真实数据通路）', () => {
+  const flat = flattenCategoryTree([{ name: '工具', site_count: 1, children: [{ name: '开发', children: [] }] }]);
+  const normalized = normalizeCategories(flat);
+  const directEntry = normalized.find((c) => c.direct);
+  assert.ok(directEntry, 'normalizeCategories 不得丢弃 direct 标记');
+  assert.equal(directEntry.parent, '工具');
+  const tree = buildCategoryTree([{ name: '', level: 0 }, ...normalized]);
+  const expanded = new Set(['工具']);
+  const directView = collectCategoryGroups(tree, expanded, '工具', true);
+  const directItem = directView[0].items.find((it) => it.direct);
+  assert.ok(directItem, '直属节点应出现在子分类列表中');
+  assert.equal(directItem.active, true, 'direct 视图下直属节点高亮');
+  const aggregated = collectCategoryGroups(tree, expanded, '工具', false);
+  assert.equal(aggregated[0].items.find((it) => it.direct).active, false, '聚合视图下直属节点不高亮');
+});
