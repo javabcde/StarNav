@@ -17,6 +17,14 @@ const pickerSrc = readFileSync(
   fileURLToPath(new URL('../extensions/browser-bookmark/collect-picker.js', import.meta.url)),
   'utf8',
 );
+const positionSrc = readFileSync(
+  fileURLToPath(new URL('../extensions/browser-bookmark/context-menu-position.js', import.meta.url)),
+  'utf8',
+);
+const manifestSrc = readFileSync(
+  fileURLToPath(new URL('../extensions/browser-bookmark/manifest.json', import.meta.url)),
+  'utf8',
+);
 
 test('右键菜单：onClicked 写候选并开窗，不再直存', () => {
   assert.doesNotMatch(backgroundSrc, /buildCollectPayload/, 'background 不得再直存收藏（直存逻辑已移入小窗）');
@@ -60,4 +68,17 @@ test('收藏小窗：仍然保存走 force 路径，重复不关窗', () => {
   assert.match(pickerSrc, /\?force=true/, '仍然保存必须走 /api/sites?force=true');
   assert.match(pickerSrc, /els\.forceSaveBtn\.classList\.remove\('hidden'\)/, '查重重复必须显示仍然保存按钮');
   assert.match(pickerSrc, /statusCode === 409/, '409 竞态必须按重复处理');
+});
+
+test('小窗定位：跟随鼠标右键位置（content script 记录 + background 读坐标开窗）', () => {
+  assert.match(manifestSrc, /"content_scripts"/, 'manifest 必须声明 content script');
+  assert.match(manifestSrc, /"context-menu-position\.js"/, 'content script 文件必须注册');
+  assert.match(
+    backgroundSrc,
+    /^\s*const pos = await chrome\.storage\.local\.get\(Contract\.STORAGE_KEYS\.CONTEXT_MENU_POSITION\)/m,
+    'onClicked 必须读取右键坐标',
+  );
+  assert.match(backgroundSrc, /windowOptions\.left = Math\.round\(p\.x\)/, '坐标必须传入 windows.create left/top');
+  assert.match(positionSrc, /addEventListener\('contextmenu'/, 'content script 必须监听 contextmenu 记录坐标');
+  assert.match(positionSrc, /Math\.max\(winLeft, Math\.min\(/, '坐标必须 clamp 到屏幕内');
 });

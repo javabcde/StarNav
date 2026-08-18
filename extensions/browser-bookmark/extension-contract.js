@@ -29,6 +29,8 @@
     // 右键收藏小窗：待收藏候选（background 写入 → 小窗读取）与上次选择分类记忆
     LAST_COLLECT_CANDIDATE: 'lastCollectCandidate',
     LAST_COLLECT_CATEGORY: 'lastCollectCategory',
+    // 右键坐标（content script 记录 → background 开窗定位）：小窗跟随鼠标右键位置
+    CONTEXT_MENU_POSITION: 'lastContextMenuPosition',
   };
 
   // ── 配置键清单（options.js 写入、popup/background 读取）──────────

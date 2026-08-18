@@ -90,13 +90,22 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     await chrome.storage.local.set({
       [Contract.STORAGE_KEYS.LAST_COLLECT_CANDIDATE]: { url, name, ts: Date.now() },
     });
-    await chrome.windows.create({
+    // 小窗跟随鼠标右键位置：坐标由 content script 在 contextmenu 事件记录；
+    // 未注入页面（chrome:// 等）无记录 → 不传 left/top，Chrome 居中
+    const pos = await chrome.storage.local.get(Contract.STORAGE_KEYS.CONTEXT_MENU_POSITION);
+    const p = pos[Contract.STORAGE_KEYS.CONTEXT_MENU_POSITION];
+    const windowOptions = {
       url: 'collect-picker.html',
       type: 'popup',
       width: 340,
       height: 480,
       focused: true,
-    });
+    };
+    if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+      windowOptions.left = Math.round(p.x);
+      windowOptions.top = Math.round(p.y);
+    }
+    await chrome.windows.create(windowOptions);
   });
 });
 
