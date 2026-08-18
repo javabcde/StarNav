@@ -80,7 +80,7 @@ test('小窗定位：跟随鼠标右键位置（content script 记录 + backgrou
   );
   assert.match(backgroundSrc, /windowOptions\.left = Math\.round\(p\.x\)/, '坐标必须传入 windows.create left/top');
   assert.match(positionSrc, /addEventListener\('contextmenu'/, 'content script 必须监听 contextmenu 记录坐标');
-  assert.match(positionSrc, /outerHeight - innerHeight/, '纵向坐标必须补窗口 chrome 偏移（标签栏+地址栏）');
+  assert.match(positionSrc, /outerHeight\s*-\s*window\.innerHeight/, '纵向坐标必须补窗口 chrome 偏移（标签栏+地址栏）');
   assert.match(positionSrc, /Math\.max\(winLeft, Math\.min\(/, '坐标必须 clamp 到屏幕内');
   assert.match(backgroundSrc, /getLastFocused/, '无坐标记录时必须兜底居中（防 Chrome 贴左上角）');
 });
