@@ -1,8 +1,11 @@
-## ADDED Requirements
+# collect-picker Specification
 
+## Purpose
+TBD - created by archiving change collect-picker-dialog. Update Purpose after archive.
+## Requirements
 ### Requirement: 右键收藏弹出分类选择小窗
 
-右键菜单「收藏当前网页到 xxx」点击后，不再直接保存，而是弹出小窗让用户选择目标分类后保存。
+右键菜单「收藏当前网页到 xxx」点击后，SHALL 不再直接保存，而是弹出小窗让用户选择目标分类后保存。
 
 #### Scenario: 右键网页收藏弹窗
 
@@ -22,7 +25,7 @@
 
 ### Requirement: 分类树加载与回退
 
-小窗打开时加载最新分类树；失败时回退本地缓存。
+小窗打开时 SHALL 加载最新分类树；失败时 SHALL 回退本地缓存。
 
 #### Scenario: 拉取成功
 
@@ -41,7 +44,7 @@
 
 ### Requirement: 默认选中分类
 
-小窗打开时默认选中记忆的上次选择，无记忆则用 options 默认分类。
+小窗打开时 SHALL 默认选中记忆的上次选择；无记忆时 SHALL 用 options 默认分类。
 
 #### Scenario: 有上次记忆
 
@@ -60,7 +63,7 @@
 
 ### Requirement: 查重与强制保存
 
-小窗打开时自动查重；重复时提示并提供「仍然保存」。
+小窗打开时 SHALL 自动查重；重复时 SHALL 提示并提供「仍然保存」。
 
 #### Scenario: URL 已存在
 
@@ -80,13 +83,16 @@
 
 ### Requirement: 保存后行为
 
+保存提交后 SHALL 按结果处理：成功关窗并通知，失败通知且保持小窗打开可重试。
+
 #### Scenario: 保存成功
 
 - **WHEN** `POST /api/sites` 成功
-- **THEN** 小窗自动关闭，系统通知 success「已成功收藏到分类「xxx」！」
-- **AND** 所选分类写入 `lastCollectCategory`，`lastCollectCandidate` 清除
+- **THEN** 小窗 SHALL 自动关闭，系统通知 success「已成功收藏到分类「xxx」！」
+- **AND** 所选分类 SHALL 写入 `lastCollectCategory`，`lastCollectCandidate` SHALL 清除
 
 #### Scenario: 保存失败
 
 - **WHEN** 服务端返回错误或网络失败
-- **THEN** 系统通知对应错误文案（复用现有 showNotification 分级），小窗保持打开可重试
+- **THEN** 系统通知 SHALL 展示对应错误文案（复用现有 showNotification 分级），小窗 SHALL 保持打开可重试
+
