@@ -104,6 +104,16 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
       windowOptions.left = Math.round(p.x);
       windowOptions.top = Math.round(p.y);
+    } else {
+      // 无坐标记录（右键的页面未注入 content script，如重载前已打开的标签页）：
+      // 显式居中于当前焦点窗口，避免 Chrome 默认贴左上角
+      try {
+        const lastFocused = await chrome.windows.getLastFocused();
+        if (lastFocused && Number.isFinite(lastFocused.width) && Number.isFinite(lastFocused.height)) {
+          windowOptions.left = Math.round(lastFocused.left + (lastFocused.width - 340) / 2);
+          windowOptions.top = Math.round(lastFocused.top + (lastFocused.height - 480) / 2);
+        }
+      } catch { /* 兜底失败则交给 Chrome 默认定位 */ }
     }
     await chrome.windows.create(windowOptions);
   });

@@ -11,15 +11,17 @@
   const PICKER_HEIGHT = 480;
 
   document.addEventListener('contextmenu', (event) => {
-    // window.screenX/screenY 是窗口相对主屏原点的位置（多屏可为负），
-    // 鼠标屏幕坐标 = 窗口位置 + 视口内偏移
+    // window.screenX/screenY 是窗口外缘相对主屏原点的位置（多屏可为负），
+    // clientX/clientY 相对视口——纵向隔着标签栏+地址栏（outerHeight-innerHeight），
+    // 横向视口左缘与窗口左缘对齐（无横向 chrome），只需补纵向偏移
     const winLeft = window.screenX;
     const winTop = window.screenY;
+    const chromeY = window.outerHeight - window.innerHeight;
     const screenRight = winLeft + window.screen.width;
     const screenBottom = winTop + window.screen.height;
-    // clamp：窗口左上角尽量贴近鼠标，但不越出当前屏幕
+    // clamp：窗口左上角尽量贴近鼠标落点，但不越出当前屏幕
     const left = Math.max(winLeft, Math.min(winLeft + event.clientX, screenRight - PICKER_WIDTH));
-    const top = Math.max(winTop, Math.min(winTop + event.clientY, screenBottom - PICKER_HEIGHT));
+    const top = Math.max(winTop, Math.min(winTop + chromeY + event.clientY, screenBottom - PICKER_HEIGHT));
     // 键名与 Contract.STORAGE_KEYS.CONTEXT_MENU_POSITION 一致（content script 为
     // 隔离世界，无法读取 extension-contract.js，此处字面量，background 侧走契约键）
     chrome.storage.local.set({
