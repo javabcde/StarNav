@@ -17,6 +17,8 @@
   const MESSAGE_TYPES = {
     ENSURE_FAVICON: 'ensure-favicon',
     SYNC_SITE_NAME: 'sync-site-name',
+    // 收藏小窗保存结果上报：小窗关闭后由 background 统一系统通知
+    COLLECT_RESULT: 'collect-result',
   };
 
   // ── 存储键契约 ───────────────────────────────────────────────────
@@ -24,6 +26,9 @@
     BROWSE_CACHE: BROWSE_CACHE_KEY,
     BROWSE_VIEW: 'browse:view:v1',
     FAVICON_DEBUG_LAST: 'favicon:debug:last',
+    // 右键收藏小窗：待收藏候选（background 写入 → 小窗读取）与上次选择分类记忆
+    LAST_COLLECT_CANDIDATE: 'lastCollectCandidate',
+    LAST_COLLECT_CATEGORY: 'lastCollectCategory',
   };
 
   // ── 配置键清单（options.js 写入、popup/background 读取）──────────

@@ -67,7 +67,8 @@ chrome.runtime.onStartup.addListener(() => {
   });
 });
 
-// 监听右键菜单点击
+// 监听右键菜单点击：弹分类选择小窗（不再直存——收藏目标由用户在小窗内选定，
+// 见 collect-picker-dialog 变更；选择与保存逻辑在 collect-picker.js）
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId !== "starnav-collect") return;
 
@@ -78,48 +79,24 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   chrome.storage.sync.get(Contract.CONFIG_KEYS.sync, async (settings) => {
     const baseUrl = Contract.normalizeBaseUrl(settings.baseUrl);
     const token = settings.token || "";
-    const defaultCategory = settings.defaultCategory || "未分类";
-    const siteName = settings.siteName || 'StarNav';
 
     if (!baseUrl || !token) {
       showNotification("error", "收藏失败", "请先在插件选项中配置 API 地址和 Token！");
       return;
     }
 
-    try {
-      // 1. 自动获取 Favicon
-      let logo = "";
-      try {
-        const domain = new URL(url).origin;
-        logo = `${baseUrl}/api/favicon?url=${encodeURIComponent(url)}`;
-      } catch (e) {}
-
-      // 2. 提交书签（统一 /api/sites + 契约载荷构建；409 重复走警告通知）
-      const payload = Contract.buildCollectPayload({
-        name,
-        url,
-        logo,
-        catelog: defaultCategory,
-        desc: "通过浏览器插件一键收藏",
-        visibility: "public",
-      });
-      await Contract.apiFetch('/api/sites', {
-        baseUrl,
-        token,
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      showNotification("success", "收藏成功", `已成功收藏到分类「${defaultCategory}」！`);
-    } catch (err) {
-      if (err.status === 409 || (err.data && err.data.code === 409)) {
-        showNotification("warning", "重复收藏", `该网页已在您的 ${siteName} 中收藏过啦！`);
-      } else if (err.status) {
-        showNotification("error", "收藏失败", err.message || "服务器返回错误");
-      } else {
-        showNotification("error", "网络错误", `无法连接到您的 ${siteName} 实例，请检查网络或 API 地址。`);
-      }
-    }
+    // 候选数据暂存 storage.local（URL 可能超长且含特殊字符，不走 query 参数），
+    // 随后弹小窗选分类；保存成功后由小窗清除
+    await chrome.storage.local.set({
+      [Contract.STORAGE_KEYS.LAST_COLLECT_CANDIDATE]: { url, name, ts: Date.now() },
+    });
+    await chrome.windows.create({
+      url: 'collect-picker.html',
+      type: 'popup',
+      width: 340,
+      height: 480,
+      focused: true,
+    });
   });
 });
 
@@ -146,12 +123,34 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }).catch(() => {});
     return;
   }
+  // 收藏小窗保存结果：小窗已关闭，统一由 background 通知用户结果
+  if (message.type === Contract.MESSAGE_TYPES.COLLECT_RESULT) {
+    notifyCollectResult(message);
+    return;
+  }
   if (message.type !== Contract.MESSAGE_TYPES.ENSURE_FAVICON) return; // 非本消息不拦截
   ensureFaviconForSite(message.siteId)
     .then(sendResponse)
     .catch(() => sendResponse({ ok: false, reason: 'unexpected' }));
   return true; // 异步 sendResponse
 });
+
+// 收藏小窗结果通知：ok=成功（含分类名）；kind=duplicate 重复；kind=server 服务端错误；
+// kind=network 网络错误（站点名取配置，文案对齐原右键直存路径）
+function notifyCollectResult({ ok, kind, message, category } = {}) {
+  chrome.storage.sync.get(Contract.CONFIG_KEYS.sync, ({ siteName }) => {
+    const name = siteName || 'StarNav';
+    if (ok) {
+      showNotification('success', '收藏成功', message || `已成功收藏到分类「${category || '未分类'}」！`);
+    } else if (kind === 'duplicate') {
+      showNotification('warning', '重复收藏', message || `该网页已在您的 ${name} 中收藏过啦！`);
+    } else if (kind === 'server') {
+      showNotification('error', '收藏失败', message || '服务器返回错误');
+    } else {
+      showNotification('error', '网络错误', message || `无法连接到您的 ${name} 实例，请检查网络或 API 地址。`);
+    }
+  });
+}
 
 async function ensureFaviconForSite(siteId) {
   const settings = await chrome.storage.sync.get(Contract.CONFIG_KEYS.sync);
