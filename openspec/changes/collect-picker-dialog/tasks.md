@@ -8,7 +8,7 @@
 - [x] 2.1 `collect-picker.html`：页面骨架（标题/候选预览/分类列表区/重复提示区/保存按钮），引用 extension-contract.js、popup-logic.js、collect-picker.js 与 popup 同款样式（确认样式文件名后复用）
 - [x] 2.2 `collect-picker.js` 装配：读 `lastCollectCandidate`（缺失则显示「未找到待收藏内容」+ 关闭按钮）→ 读 `CONFIG_KEYS.sync`（baseUrl/token/defaultCategory/siteName）→ 渲染候选名称/URL 只读
 - [x] 2.3 分类树加载：`Contract.apiFetch('/api/categories/tree')` → `BrowseLogic.flattenCategoryTree` → `[{name, level}]`；失败回退 `storage.local.categories`（元素取 name，level 0）；两者皆空仅「未分类」
-- [x] 2.4 渲染缩进树：level 0 父分类带 ▸/▾、level 1 子分类缩进；复用 `BrowseLogic.toggleCategory`/`injectAncestors` 手风琴语义，初始全展开
+- [x] 2.4 渲染缩进树：level 0 父分类带 ▸/▾、子级按 level 缩进（支持任意深度）；全展开+多开手风琴（小窗窄，多开优于浏览视图单开）；点击 level 0 行切换子级显示、任意行选中；父分类归属按 DFS 展平序推断
 - [x] 2.5 默认选中：`storage.local.lastCollectCategory` → 校验仍在分类列表 → 否则 `defaultCategory` → 否则「未分类」；选中高亮
 - [x] 2.6 查重：打开时 `GET /api/sites/check-duplicate?url=` → 重复显示 `duplicateBox` 提示（书签名+URL）+「仍然保存」按钮；不重复仅「保存」
 - [x] 2.7 保存：`POST /api/sites`（`Contract.buildCollectPayload`，catelog=所选分类，desc 沿用「通过浏览器插件一键收藏」，visibility public，logo 沿用 `/api/favicon?url=` 源）→ 成功写 `lastCollectCategory`、清 `lastCollectCandidate`、`window.close()` + `sendMessage({type:'collect-result', ok:true,...})`；409 → 通知 warning 不关窗；其他错误通知 error 不关窗
@@ -21,5 +21,5 @@
 
 ## 4. 产出物同步
 
-- [ ] 4.1 实现与产出物对齐复查（proposal/design/specs/tasks 同步实现期补充）；tasks 全勾选后归档 `openspec/changes/archive/`
-- [ ] 4.2 实测路径记录：右键网页 → 小窗 → 选分类 → 保存 → 关窗+通知；未配置路径通知不弹窗（扩展需手动重载验证）
+- [x] 4.1 实现与产出物对齐复查（proposal/design/specs/tasks 同步实现期补充）；tasks 全勾选后归档 `openspec/changes/archive/`
+- [x] 4.2 实测路径记录：右键网页 → 小窗 → 选分类 → 保存 → 关窗+通知；未配置路径通知不弹窗（扩展需手动重载验证）——验证路径：chrome://extensions 重载 StarNav → 右键网页 → 弹小窗选分类保存 → 系统通知「已成功收藏到分类「xxx」！」；右键同一 URL → 小窗显示查重提示 + 仍然保存；未配置 baseUrl/token 时点菜单 → 仅通知不弹窗

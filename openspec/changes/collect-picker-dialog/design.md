@@ -36,6 +36,7 @@ MV3 约束：`contextMenus.onClicked` 回调中 `chrome.action.openPopup()` 有�
 
 ### D2. 分类数据：打开时拉 `GET /api/categories/tree` → `flattenCategoryTree`，失败回退 `storage.local.categories`
 - 拉取成功 → 展平 `[{name, level}]` 渲染缩进树。
+- **过滤虚拟节点**：`flattenCategoryTree` 会产出「直属书签」聚合节点（`direct: true`，ADR-0013 不建真实分类行）——不可作为保存目标，经 `PickerLogic.pickRelevantCategories` 过滤后渲染。
 - 失败（网络/token 无效）→ 读 `storage.local.categories`（options「刷新分类/标签缓存」写的那份，元素含 `name`），映射 `level: 0`。
 - 两者皆空 → 仅「未分类」一项（`defaultCategory` 兜底项）。
 - 分类树接口在整站锁场景：`/api/categories/tree` 非白名单路由——但 token 有效即可访问（整站锁放行有效 Bearer）。与 popup 浏览视图同源，无新增风险。
@@ -57,8 +58,8 @@ MV3 约束：`contextMenus.onClicked` 回调中 `chrome.action.openPopup()` 有�
 ### D6. 菜单点击行为变更
 `onClicked` 原保存逻辑整体移入小窗；`onClicked` 只做：读配置 → 无 baseUrl/token 则通知并 return → 写候选 → 开窗。`defaultCategory` 的读取保留给 D3 兜底。
 
-### D7. 分类树渲染：两级缩进 + 手风琴
-`level 0` 父分类（有子时带 ▸/▾），`level 1` 子分类缩进。复用 `BrowseLogic.toggleCategory`（单开手风琴）与 `injectAncestors` 语义；小窗初始全展开。
+### D7. 分类树渲染：两级以上缩进 + 全展开多开手风琴
+`level 0` 父分类（有子时带 ▸/▾），子级按 `level` 递增缩进（`padding-left = 20 + (level-1)*16`）。初始**全展开**（记忆分类可能在子级里）；点击 level 0 行切换其子级显示（**多开**——小窗窄，同时对比多个父分类的子级比浏览视图的单开手风琴更实用）；点击任意行 = 选中。父分类归属按 DFS 展平序推断（栈顶最近 level 0 祖先），不依赖树形接口额外字段。
 
 ## Risks / Trade-offs
 
