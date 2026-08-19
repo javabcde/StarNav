@@ -195,3 +195,13 @@ test('browse.mount：绑定浏览交互监听；无缓存时走全量拉取初�
   assert.doesNotThrow(() => view.onLeave());
   assert.equal(typeof view.refreshAfterCacheMutation, 'function');
 });
+
+test('browse 切换分类：清空搜索词并同步清空输入框（防旧词过滤新分类空结果）', () => {
+  const src = readFileSync(new URL('browse-view.js', EXT), 'utf8');
+  // 两个分支（direct/普通）都必须带 keyword:''（空串非 nullish，才能真正清空）
+  assert.match(src, /catelog: parent, direct: true, keyword: ''/, '直属书签切换分支必须清空 keyword');
+  assert.match(src, /catelog: cat, direct: false, keyword: ''/, '普通分类切换分支必须清空 keyword');
+  assert.match(src, /^\s*els\.browseSearch\.value = '';$/m, '搜索输入框必须同步清空（UI 与状态一致）');
+  // 搜索输入分支不得反向清空分类（scope：只做切分类清搜索）
+  assert.match(src, /applyBrowseFilter\(browseState, \{ keyword \}\)/, '搜索输入分支保持只改 keyword');
+});

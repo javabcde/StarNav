@@ -377,7 +377,13 @@
             // 手风琴语义：点任意分类按钮都收起当前展开（与点箭头一致）；
             // 若点击的是子分类，renderCategories 会按祖先链自动恢复其父的展开
             expandedCategories.clear();
-            Object.assign(browseState, BrowseLogic.applyBrowseFilter(browseState, direct ? { catelog: parent, direct: true } : { catelog: cat, direct: false }));
+            // 切换分类时清空搜索词：旧词过滤新分类列表极易"空结果"且不易察觉，
+            // 一并传 keyword:'' （空串非 nullish，applyBrowseFilter 会真正生效），
+            // 输入框同步清空保持 UI 与状态一致（saveBrowseView 随 applyBrowseView 持久化空词）
+            Object.assign(browseState, BrowseLogic.applyBrowseFilter(browseState, direct
+              ? { catelog: parent, direct: true, keyword: '' }
+              : { catelog: cat, direct: false, keyword: '' }));
+            els.browseSearch.value = '';
             renderCategories();
             // 客户端过滤（守卫：缓存未就绪先触发全量拉取）
             ensureBrowseCache().then(() => applyBrowseView()).catch(() => {});
