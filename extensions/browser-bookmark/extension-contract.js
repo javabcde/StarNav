@@ -31,11 +31,13 @@
     LAST_COLLECT_CATEGORY: 'lastCollectCategory',
     // 右键坐标（content script 记录 → background 开窗定位）：小窗跟随鼠标右键位置
     CONTEXT_MENU_POSITION: 'lastContextMenuPosition',
+    // 书签镜像文件夹 id（background 创建/定位后写入，sync 快照据此排除，避免反向回流）
+    BOOKMARK_MIRROR_FOLDER_ID: 'bookmark:mirror:folderId',
   };
 
   // ── 配置键清单（options.js 写入、popup/background 读取）──────────
   const CONFIG_KEYS = {
-    sync: ['baseUrl', 'token', 'defaultCategory', 'defaultTags', 'siteName', 'siteIcon', 'browseCacheMinutes'],
+    sync: ['baseUrl', 'token', 'defaultCategory', 'defaultTags', 'siteName', 'siteIcon', 'browseCacheMinutes', 'mirrorBookmarks'],
     local: ['categories', 'tags', 'metadataUpdatedAt'],
   };
 

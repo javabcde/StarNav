@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "StarNav 一键收藏",
   "description": "将当前网页一键收藏到 StarNav 导航站。",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "permissions": [
     "activeTab",
     "bookmarks",
@@ -49,6 +49,9 @@
       },
       "description": "打开 StarNav 收藏弹窗"
     }
+  },
+  "omnibox": {
+    "keyword": "sn"
   },
   "options_page": "options.html"
 }

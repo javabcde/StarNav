@@ -15,9 +15,11 @@
     // 递归展平 chrome.bookmarks.getTree() 结果：
     // 跳过文件夹节点（无 url）；根文件夹（getTree 根节点之下第一层）不拼入 folderPath，
     // 其顶层书签 folderPath 为空；自定义文件夹嵌套拼接为「父/子」。
-    function flattenBookmarks(nodes, parentPath = '', depth = 0) {
+    function flattenBookmarks(nodes, parentPath = '', depth = 0, excludeFolderId = '') {
       const items = [];
       for (const node of nodes || []) {
+        // 插件管理的书签镜像文件夹不参与一键同步，避免镜像反向回流 StarNav
+        if (!node.url && excludeFolderId && node.id === excludeFolderId) continue;
         if (node.url) {
           items.push({
             id: node.id,
@@ -30,7 +32,7 @@
         const isRootFolder = depth === 1 && ROOT_FOLDER_NAMES.has(node.title);
         const childPath = isRootFolder ? '' : parentPath ? `${parentPath}/${node.title}` : node.title;
         if (node.children && node.children.length) {
-          items.push(...flattenBookmarks(node.children, childPath, depth + 1));
+          items.push(...flattenBookmarks(node.children, childPath, depth + 1, excludeFolderId));
         }
       }
       return items;
@@ -60,7 +62,11 @@
 
     async function syncBookmarks() {
       const tree = await chrome.bookmarks.getTree();
-      const items = flattenBookmarks(tree);
+      const mirrorKey = ctx.Contract?.STORAGE_KEYS?.BOOKMARK_MIRROR_FOLDER_ID;
+      const mirrorFolderId = mirrorKey
+        ? (await chrome.storage.local.get(mirrorKey))[mirrorKey] || ''
+        : '';
+      const items = flattenBookmarks(tree, '', 0, mirrorFolderId);
 
       if (!items.length) {
         setStatus('未发现可同步的书签', 'warning');
