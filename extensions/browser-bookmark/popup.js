@@ -213,12 +213,6 @@ async function initPopup() {
   collectView.mount();
   syncView.mount();
 
-  // 打开即定位搜索框（Ctrl+Shift+F → 直接输入 → 回车开首条）：
-  // Brave 的地址栏不派发扩展 omnibox 输入事件，弹窗搜索是零前缀替代路径；
-  // 有上次关键词时全选，输入即替换（类似地址栏选中态）
-  els.browseSearch.focus();
-  els.browseSearch.select();
-
   if (!config.baseUrl || !config.token) {
     setStatus(`请先打开设置，填写 ${config.siteName || 'StarNav'} 地址和 Token。`, 'error');
     return;

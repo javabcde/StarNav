@@ -414,22 +414,6 @@
 
     let browseSearchTimer = null;
 
-    // 应用搜索词（Enter 直开时先 flush：300ms 防抖未到期时列表仍是旧结果，会开错书签）
-    function applyBrowseKeyword() {
-      const keyword = els.browseSearch.value.trim();
-      if (keyword === browseState.keyword) return Promise.resolve();
-      Object.assign(browseState, BrowseLogic.applyBrowseFilter(browseState, { keyword }));
-      return ensureBrowseCache().then(() => applyBrowseView()).catch(() => {});
-    }
-
-    // 打开当前列表第一条（复用条目点击的完整路径：图标补全上报 + 跃迁反馈 + 关窗）
-    function openFirstBrowseMatch() {
-      const first = els.browseList.querySelector('.browse-item[data-url]');
-      if (!first) return false;
-      first.click();
-      return true;
-    }
-
     /**
      * 挂载浏览视图：绑定交互监听 + 恢复上次视图 + 加载全量缓存。
      * 视图生命周期 seam：popup 壳在启动时调用一次（重复调用会重复绑定监听）。
@@ -437,18 +421,12 @@
     function mount() {
       els.browseSearch.addEventListener('input', () => {
         clearTimeout(browseSearchTimer);
-        browseSearchTimer = setTimeout(applyBrowseKeyword, 300);
-      });
-
-      // 回车直开首条：Brave 等浏览器不把 omnibox 输入事件派发给扩展（只能盲回车），
-      // 弹窗搜索是这些浏览器里唯一可靠的「输入 → 回车」路径
-      els.browseSearch.addEventListener('keydown', async (event) => {
-        if (event.key !== 'Enter') return;
-        if (!els.browseSearch.value.trim()) return;
-        event.preventDefault();
-        clearTimeout(browseSearchTimer);
-        await applyBrowseKeyword();
-        openFirstBrowseMatch();
+        browseSearchTimer = setTimeout(() => {
+          const keyword = els.browseSearch.value.trim();
+          if (keyword === browseState.keyword) return;
+          Object.assign(browseState, BrowseLogic.applyBrowseFilter(browseState, { keyword }));
+          ensureBrowseCache().then(() => applyBrowseView()).catch(() => {});
+        }, 300);
       });
 
       els.browseSort.addEventListener('change', () => {
