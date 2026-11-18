@@ -208,6 +208,47 @@ test('sync.flattenBookmarks：根文件夹不进 folderPath，自定义文件夹
   assert.deepEqual(items.map((item) => item.folderPath), ['', '工具', ''], '根文件夹名不进入 folderPath');
 });
 
+test('browse 搜索回车：先应用关键词再打开首条（防防抖窗口内开错书签）', async () => {
+  const ctx = createTestCtx({
+    apiFetchImpl: (path) => {
+      if (path === '/api/config?all=1') {
+        return { data: [{ id: 1, name: 'GitHub', url: 'https://github.com', catelog: '开发' }], total: 1 };
+      }
+      return { data: [] };
+    },
+  });
+  const view = StarNavBrowseView.create(ctx);
+  view.mount();
+
+  let opened = 0;
+  ctx.els.browseList.querySelector = () => ({ click: () => { opened += 1; } });
+  ctx.els.browseSearch.value = 'git';
+
+  const enter = ctx.els.browseSearch.listeners.keydown[0];
+  assert.equal(typeof enter, 'function', '搜索框应绑定 keydown');
+  let prevented = false;
+  await enter({ key: 'Enter', preventDefault: () => { prevented = true; } });
+
+  assert.equal(prevented, true, '有输入时回车应阻止默认行为');
+  assert.equal(opened, 1, '回车应打开当前列表首条');
+});
+
+test('browse 搜索回车：空输入与无匹配不跳转', async () => {
+  const ctx = createTestCtx();
+  const view = StarNavBrowseView.create(ctx);
+  view.mount();
+  const enter = ctx.els.browseSearch.listeners.keydown[0];
+
+  let prevented = false;
+  ctx.els.browseSearch.value = '   ';
+  await enter({ key: 'Enter', preventDefault: () => { prevented = true; } });
+  assert.equal(prevented, false, '空输入回车不拦截');
+
+  ctx.els.browseSearch.value = 'zzz';
+  await enter({ key: 'Enter', preventDefault: () => { prevented = true; } });
+  assert.equal(prevented, true);
+});
+
 test('browse.mount：绑定浏览交互监听；无缓存时走全量拉取初始化', async () => {
   const ctx = createTestCtx({
     apiFetchImpl: (path) => {

@@ -89,7 +89,6 @@ function trySetDefaultSuggestion(description) {
 
 // 进入关键字输入时：立即给出默认行（同时验证关键字模式确实由本扩展接管），再预取缓存
 chrome.omnibox.onInputStarted.addListener(() => {
-  console.log('[StarNav] omnibox 关键字模式进入');
   const cache = browseCacheSnapshot;
   trySetDefaultSuggestion(
     cache
@@ -146,13 +145,10 @@ chrome.omnibox.onInputChanged.addListener((text, suggest) => {
   const query = String(text || '').trim();
   if (browseCacheSnapshot) {
     // 同步交付：建议与默认行在同一回调内完成，不依赖延迟交付是否被浏览器接受
-    const list = buildOmniboxResponse(query, browseCacheSnapshot, true, false);
-    console.log('[StarNav] onInputChanged', JSON.stringify(query), '缓存', browseCacheSnapshot.items.length, '建议', list.length);
-    suggest(list);
+    suggest(buildOmniboxResponse(query, browseCacheSnapshot, true, false));
     refreshBrowseCacheIfNeeded(browseCacheSnapshot);
     return;
   }
-  console.log('[StarNav] onInputChanged（冷启动无快照）', JSON.stringify(query));
   trySetDefaultSuggestion(OmniboxLogic.renderDefaultSuggestion({
     query,
     configured: true,
@@ -166,7 +162,6 @@ chrome.omnibox.onInputChanged.addListener((text, suggest) => {
 
 chrome.omnibox.onInputEntered.addListener(async (text, disposition) => {
   const raw = String(text || '').trim();
-  console.log('[StarNav] onInputEntered', JSON.stringify(raw));
   const target = OmniboxLogic.normalizeOmniboxTarget(raw);
   let url = target.kind === 'url' ? target.url : '';
 

@@ -114,9 +114,9 @@ async function waitFor(predicate, timeoutMs = 1000) {
   throw new Error('waitFor timeout');
 }
 
-test('manifest：地址栏关键字为 qq，bookmarks 权限保留给一键同步', () => {
+test('manifest：地址栏关键字为 q，bookmarks 权限保留给一键同步', () => {
   const manifest = JSON.parse(read('manifest.json'));
-  assert.equal(manifest.omnibox?.keyword, 'qq', '地址栏搜索关键字应为 qq');
+  assert.equal(manifest.omnibox?.keyword, 'q', '地址栏搜索关键字应为 q');
   assert.ok(manifest.permissions.includes('bookmarks'), '一键同步仍需要 bookmarks 权限');
 });
 
