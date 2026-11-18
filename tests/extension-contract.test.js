@@ -15,14 +15,12 @@ test('契约常量：缓存键/形状字段/TTL 默认/存储键/消息类型/�
   assert.deepEqual(Contract.BROWSE_CACHE_FIELDS, ['kind', 'fetchedAt', 'ttlMinutes', 'items', 'total', 'categories']);
   assert.equal(Contract.STORAGE_KEYS.BROWSE_CACHE, 'browse:cache:v1');
   assert.equal(Contract.STORAGE_KEYS.BROWSE_VIEW, 'browse:view:v1');
-  assert.equal(Contract.STORAGE_KEYS.BOOKMARK_MIRROR_FOLDER_ID, 'bookmark:mirror:folderId');
   assert.equal(Contract.STORAGE_KEYS.FAVICON_DEBUG_LAST, 'favicon:debug:last');
   assert.equal(Contract.MESSAGE_TYPES.ENSURE_FAVICON, 'ensure-favicon');
   assert.equal(Contract.MESSAGE_TYPES.SYNC_SITE_NAME, 'sync-site-name');
   assert.ok(Contract.CONFIG_KEYS.sync.includes('baseUrl'));
   assert.ok(Contract.CONFIG_KEYS.sync.includes('token'));
   assert.ok(Contract.CONFIG_KEYS.sync.includes('defaultCategory'));
-  assert.ok(Contract.CONFIG_KEYS.sync.includes('mirrorBookmarks'));
   assert.ok(Contract.CONFIG_KEYS.local.includes('categories'));
 });
 

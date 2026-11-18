@@ -35,21 +35,3 @@ test('options 配置持久化：browseCacheMinutes 默认值引用契约常量',
   assert.equal(occurrences.length, 0, 'browseCacheMinutes 默认值不得为字面量数字（必须引用 Contract.BROWSE_CACHE_DEFAULT_MINUTES）');
   assert.ok(optionsSrc.includes('Contract.BROWSE_CACHE_DEFAULT_MINUTES'), '默认值应来自契约常量');
 });
-
-test('options 配置持久化：mirrorBookmarks 随保存落盘，清空配置前删除镜像文件夹', () => {
-  const saveMatch = optionsSrc.match(/async function saveOptions\([\s\S]*?\n}/);
-  assert.ok(saveMatch, '应存在 saveOptions 定义');
-  assert.match(saveMatch[0], /^\s+mirrorBookmarks:/m, 'saveOptions 的 sync.set 必须写入 mirrorBookmarks');
-
-  const testMatch = optionsSrc.match(/async function testConnection\(\)[\s\S]*?\n}/);
-  assert.ok(testMatch, '应存在 testConnection 定义');
-  assert.match(testMatch[0], /^\s+mirrorBookmarks:/m, 'testConnection 的 sync.set 必须写入 mirrorBookmarks');
-
-  const clearMatch = optionsSrc.match(/async function clearOptions\(\)[\s\S]*?\n}/);
-  assert.ok(clearMatch, '应存在 clearOptions 定义');
-  assert.match(clearMatch[0], /chrome\.bookmarks\.removeTree\(mirrorId\)/, '清空配置前必须删除镜像文件夹');
-  assert.ok(
-    clearMatch[0].indexOf('removeTree') < clearMatch[0].indexOf('storage.local.clear'),
-    '删除镜像必须先于 storage.local.clear，否则镜像 id 丢失无法定位',
-  );
-});

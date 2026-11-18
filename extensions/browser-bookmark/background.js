@@ -2,12 +2,11 @@
 // 写入与 popup 相同的本地缓存结构，首次打开 popup 浏览视图直接命中；
 // 地址栏搜索（omnibox）无缓存时复用同一拉取链路。
 // 契约模块（extension-contract.js）、浏览逻辑（popup-logic.js）、
-// 地址栏搜索逻辑（omnibox-logic.js）、书签镜像逻辑（bookmark-mirror-logic.js）先行加载：
+// 地址栏搜索逻辑（omnibox-logic.js）先行加载：
 // 缓存键/形状常量、消息类型、HTTP 客户端、收藏载荷来自 Contract；
 // 形状守卫/全量缓存构建（fetchFullBrowseCache）来自 BrowseLogic（与 popup 共用）；
-// 匹配排序/建议描述/回车目标判定来自 OmniboxLogic；
-// 镜像目标/增量规划/根文件夹定位来自 BookmarkMirrorLogic。
-importScripts('extension-contract.js', 'popup-logic.js', 'omnibox-logic.js', 'bookmark-mirror-logic.js');
+// 匹配排序/建议描述/回车目标判定来自 OmniboxLogic。
+importScripts('extension-contract.js', 'popup-logic.js', 'omnibox-logic.js');
 
 // 读取已落盘的全量缓存；旧格式/缺失返回 null
 async function readBrowseCache() {
@@ -53,7 +52,7 @@ async function warmBrowseCache() {
 }
 
 // ── 地址栏搜索（omnibox）─────────────────────────────────────────
-// manifest 注册关键字 sn：地址栏输入 `sn` + 空格进入 StarNav 收藏搜索。
+// manifest 注册关键字 q：地址栏输入 `q` + 空格进入 StarNav 收藏搜索。
 // 建议来自本地全量缓存（与 popup 站内浏览同一份数据，零额外请求）；
 // 缓存缺失时等待一次拉取（上限 1.5s），过期时先用旧数据并在后台刷新。
 const OMNIBOX_CACHE_WAIT_MS = 1500;
@@ -152,95 +151,20 @@ function navigateOmniboxUrl(url, disposition) {
   }
 }
 
-// ── 浏览器书签镜像（地址栏原生联想）───────────────────────────────
-// Chrome 扩展 omnibox 必须带关键字；要让地址栏直接联想 StarNav 收藏，
-// 只能把收藏镜像到浏览器书签（Chrome 原生书签联想无需前缀）。
-// 镜像源是同一份全量缓存，只含非私人书签；「其他书签/StarNav 收藏」文件夹由插件管理，
-// 并从一键同步快照中排除（见 sync-view.js），避免镜像反向回流 StarNav。
-const MIRROR_CREATE_CONCURRENCY = 6;
-let bookmarkMirrorChain = Promise.resolve();
+// ── 旧版书签镜像清理 ──────────────────────────────────────────────
+// ≤1.2.x 曾把非私人收藏镜像到浏览器「其他书签/StarNav 收藏」，用 Chrome 原生书签联想
+// 换取零前缀地址栏搜索。该策略已移除（StarNav 收藏不写入浏览器书签）：
+// 升级时按旧版本记录的文件夹 id 一次性删除残留镜像，之后不再创建、不再对齐。
+const LEGACY_MIRROR_FOLDER_KEY = 'bookmark:mirror:folderId';
 
-function runBookmarkMirrorExclusive(task) {
-  const next = bookmarkMirrorChain.then(task, task).catch(() => {});
-  bookmarkMirrorChain = next;
-  return next;
-}
-
-async function mirrorEnabled() {
-  const settings = await chrome.storage.sync.get(Contract.CONFIG_KEYS.sync);
-  return settings.mirrorBookmarks !== false;
-}
-
-async function ensureMirrorFolderId() {
-  const key = Contract.STORAGE_KEYS.BOOKMARK_MIRROR_FOLDER_ID;
-  const stored = await chrome.storage.local.get(key);
-  const savedId = stored[key];
-  if (savedId) {
-    try {
-      const found = await chrome.bookmarks.get(savedId);
-      if (found && found[0] && !found[0].url) return savedId;
-    } catch { /* 文件夹被删除：重建 */ }
-    await chrome.storage.local.remove(key);
-  }
-
-  const tree = await chrome.bookmarks.getTree();
-  const parentId = BookmarkMirrorLogic.pickOtherBookmarksRootId(tree);
-  // 不按标题复用已有文件夹：避免把用户同名文件夹当镜像接管并删除其中书签
-  const folder = await chrome.bookmarks.create({
-    parentId,
-    title: BookmarkMirrorLogic.MIRROR_FOLDER_TITLE,
-  });
-  await chrome.storage.local.set({ [key]: folder.id });
-  return folder.id;
-}
-
-async function applyBookmarkMirror(cache) {
-  if (!BrowseLogic.isFullBrowseCache(cache)) return;
-  const desired = BookmarkMirrorLogic.desiredMirrorBookmarks(cache.items);
-  const folderId = await ensureMirrorFolderId();
-  const children = await chrome.bookmarks.getChildren(folderId);
-  const plan = BookmarkMirrorLogic.planBookmarkMirror(children, desired);
-
-  for (const id of plan.remove) {
-    try { await chrome.bookmarks.remove(id); } catch { /* 已被用户删除 */ }
-  }
-  for (const item of plan.update) {
-    try { await chrome.bookmarks.update(item.id, { title: item.title }); } catch { /* 同上 */ }
-  }
-  // 首次镜像可能数百条：小并发创建，避免一次性打满书签 API
-  let cursor = 0;
-  const workers = Array.from({ length: Math.min(MIRROR_CREATE_CONCURRENCY, plan.create.length) }, async () => {
-    while (cursor < plan.create.length) {
-      const item = plan.create[cursor];
-      cursor += 1;
-      try {
-        await chrome.bookmarks.create({ parentId: folderId, title: item.title, url: item.url });
-      } catch { /* 单条失败不阻塞其余书签 */ }
-    }
-  });
-  await Promise.all(workers);
-}
-
-// 读最新设置与缓存后对齐镜像（串行执行；期间新的缓存变更会排队再跑一次）
-function syncBookmarkMirror() {
-  return runBookmarkMirrorExclusive(async () => {
-    if (!(await mirrorEnabled())) return;
-    const cache = await readBrowseCache();
-    if (cache) await applyBookmarkMirror(cache);
-  });
-}
-
-// 关闭开关：删除插件管理的镜像文件夹（含其中用户自建子文件夹，开关文案已说明）
-function removeBookmarkMirror() {
-  return runBookmarkMirrorExclusive(async () => {
-    const key = Contract.STORAGE_KEYS.BOOKMARK_MIRROR_FOLDER_ID;
-    const stored = await chrome.storage.local.get(key);
-    const folderId = stored[key];
-    if (folderId) {
-      try { await chrome.bookmarks.removeTree(folderId); } catch { /* 已不存在 */ }
-    }
-    await chrome.storage.local.remove(key);
-  });
+async function purgeLegacyBookmarkMirror() {
+  const stored = await chrome.storage.local.get(LEGACY_MIRROR_FOLDER_KEY);
+  const folderId = stored[LEGACY_MIRROR_FOLDER_KEY];
+  if (!folderId) return;
+  try {
+    await chrome.bookmarks.removeTree(folderId);
+  } catch { /* 用户已手动删除该文件夹 */ }
+  await chrome.storage.local.remove(LEGACY_MIRROR_FOLDER_KEY);
 }
 
 // 创建右键菜单（标题跟随站点设置名，未连接时用默认名）。
@@ -259,23 +183,16 @@ chrome.runtime.onInstalled.addListener(() => {
     });
   });
   warmBrowseCache();
-  syncBookmarkMirror();
+  purgeLegacyBookmarkMirror();
 });
 
-// 站点名变化时更新右键菜单标题；地址栏联想开关/缓存变化时对齐书签镜像
+// 站点名变化时更新右键菜单标题
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'sync' && changes.siteName) {
     chrome.contextMenus.update("starnav-collect", {
       title: Contract.collectMenuTitle(changes.siteName.newValue),
     }).catch(() => {});
   }
-  // 地址栏原生联想开关：true 立即对齐；false/配置被清空（undefined）删除镜像
-  if (area === 'sync' && changes.mirrorBookmarks) {
-    if (changes.mirrorBookmarks.newValue === true) syncBookmarkMirror();
-    else removeBookmarkMirror();
-  }
-  // 全量缓存变化（popup 刷新/收藏后重拉/后台预热）→ 对齐镜像
-  if (area === 'local' && changes[Contract.BROWSE_CACHE_KEY]) syncBookmarkMirror();
 });
 
 // 浏览器启动时预热（MV3 service worker 由事件唤醒）
@@ -288,7 +205,7 @@ chrome.runtime.onStartup.addListener(() => {
       title: Contract.collectMenuTitle(siteName),
     }).catch(() => {});
   });
-  syncBookmarkMirror();
+  purgeLegacyBookmarkMirror();
 });
 
 // 监听右键菜单点击：弹分类选择小窗（不再直存——收藏目标由用户在小窗内选定，

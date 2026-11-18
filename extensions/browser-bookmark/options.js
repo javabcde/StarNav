@@ -4,7 +4,6 @@ const els = {
   defaultCategory: document.getElementById('defaultCategory'),
   defaultTags: document.getElementById('defaultTags'),
   browseCacheMinutes: document.getElementById('browseCacheMinutes'),
-  mirrorBookmarks: document.getElementById('mirrorBookmarks'),
   categoryList: document.getElementById('categoryList'),
   tagList: document.getElementById('tagList'),
   saveBtn: document.getElementById('saveBtn'),
@@ -114,7 +113,6 @@ async function loadOptions() {
   els.defaultCategory.value = syncData.defaultCategory || '';
   els.defaultTags.value = syncData.defaultTags || '';
   if (els.browseCacheMinutes) els.browseCacheMinutes.value = String(syncData.browseCacheMinutes != null ? syncData.browseCacheMinutes : Contract.BROWSE_CACHE_DEFAULT_MINUTES);
-  if (els.mirrorBookmarks) els.mirrorBookmarks.checked = syncData.mirrorBookmarks !== false;
 
   renderDatalist(els.categoryList, localData.categories || [], (item) => item.name || item.catelog || item);
   renderDatalist(els.tagList, localData.tags || [], (item) => item.name || item.tag || item);
@@ -139,7 +137,6 @@ async function saveOptions({ silent = false } = {}) {
     defaultCategory,
     defaultTags,
     browseCacheMinutes: Number(els.browseCacheMinutes?.value != null ? els.browseCacheMinutes.value : Contract.BROWSE_CACHE_DEFAULT_MINUTES),
-    mirrorBookmarks: els.mirrorBookmarks ? Boolean(els.mirrorBookmarks.checked) : true,
   });
   const iconSynced = await syncExtensionIcon({ silent: true });
   if (!silent) setStatus('设置已保存，插件图标已尝试同步。', 'success');
@@ -164,7 +161,6 @@ async function testConnection() {
     defaultCategory,
     defaultTags,
     browseCacheMinutes: Number(els.browseCacheMinutes?.value != null ? els.browseCacheMinutes.value : Contract.BROWSE_CACHE_DEFAULT_MINUTES),
-    mirrorBookmarks: els.mirrorBookmarks ? Boolean(els.mirrorBookmarks.checked) : true,
   });
 
   // 三个只读接口并行（各带 10s 超时），最快路径 = 最慢的一个接口
@@ -216,12 +212,6 @@ async function refreshMetadata() {
 }
 
 async function clearOptions() {
-  // 先删镜像文件夹再清 storage：id 被清掉后 background 无法定位，会留下孤立书签
-  const mirrorKey = Contract.STORAGE_KEYS.BOOKMARK_MIRROR_FOLDER_ID;
-  const mirrorId = (await chrome.storage.local.get(mirrorKey))[mirrorKey];
-  if (mirrorId) {
-    try { await chrome.bookmarks.removeTree(mirrorId); } catch { /* 已不存在 */ }
-  }
   await Promise.all([
     chrome.storage.sync.clear(),
     chrome.storage.local.clear()
@@ -230,7 +220,6 @@ async function clearOptions() {
   els.token.value = '';
   els.defaultCategory.value = '';
   els.defaultTags.value = '';
-  if (els.mirrorBookmarks) els.mirrorBookmarks.checked = true;
   renderDatalist(els.categoryList, [], () => '');
   renderDatalist(els.tagList, [], () => '');
   setStatus('本地插件配置已清空。', 'success');

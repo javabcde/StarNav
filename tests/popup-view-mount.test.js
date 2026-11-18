@@ -172,33 +172,40 @@ test('sync.mount：绑定同步按钮', () => {
   assert.doesNotThrow(() => view.onLeave());
 });
 
-test('sync.flattenBookmarks：按文件夹 id 排除 StarNav 书签镜像', () => {
+test('sync.flattenBookmarks：根文件夹不进 folderPath，自定义文件夹嵌套拼接', () => {
   const ctx = createTestCtx();
   const view = StarNavSyncView.create(ctx);
   const tree = [{
     id: '0',
     title: '',
     children: [
-      { id: '1', title: 'Bookmarks Bar', children: [] },
+      {
+        id: '1',
+        title: 'Bookmarks Bar',
+        children: [
+          { id: 'b1', title: 'MDN', url: 'https://developer.mozilla.org' },
+          {
+            id: 'f1',
+            title: '工具',
+            children: [{ id: 'b2', title: 'GitHub', url: 'https://github.com' }],
+          },
+        ],
+      },
       {
         id: '2',
         title: 'Other Bookmarks',
-        children: [
-          {
-            id: 'mirror',
-            title: 'StarNav',
-            children: [{ id: 'm1', title: 'GitHub', url: 'https://github.com' }],
-          },
-          { id: 'u1', title: '用户书签', url: 'https://user.example.com' },
-        ],
+        children: [{ id: 'b3', title: '用户书签', url: 'https://user.example.com' }],
       },
     ],
   }];
 
-  const filtered = view._handlers.flattenBookmarks(tree, '', 0, 'mirror');
-  assert.deepEqual(filtered.map((item) => item.url), ['https://user.example.com']);
-  const unfiltered = view._handlers.flattenBookmarks(tree);
-  assert.ok(unfiltered.some((item) => item.url === 'https://github.com'), '未传排除 id 时保持原行为');
+  const items = view._handlers.flattenBookmarks(tree);
+  assert.deepEqual(items.map((item) => item.url), [
+    'https://developer.mozilla.org',
+    'https://github.com',
+    'https://user.example.com',
+  ]);
+  assert.deepEqual(items.map((item) => item.folderPath), ['', '工具', ''], '根文件夹名不进入 folderPath');
 });
 
 test('browse.mount：绑定浏览交互监听；无缓存时走全量拉取初始化', async () => {
