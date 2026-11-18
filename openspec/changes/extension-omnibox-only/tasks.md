@@ -9,7 +9,7 @@
 
 ## 2. 地址栏关键字 `sn` → `q`
 
-- [x] 2.1 `manifest.json`：`omnibox.keyword = "q"`，版本 `1.2.0 → 1.3.0`
+- [x] 2.1 `manifest.json`：`omnibox.keyword = "qq"`（初版 `q` 实测无 started/changed 事件），版本 `1.2.0 → 1.3.3`
 - [x] 2.2 `background.js` omnibox 段注释、`README.md`、`CONTEXT.md` 的 `sn` 全部改 `q`
 
 ## 3. 测试与回归
@@ -17,13 +17,13 @@
 - [x] 3.1 删除 `tests/bookmark-mirror-logic.test.js`、`tests/bookmark-mirror-background.test.js`
 - [x] 3.2 `tests/extension-contract.test.js` 去掉镜像键/配置断言；`tests/options-config-persist.test.js` 删除镜像持久化用例
 - [x] 3.3 `tests/popup-view-mount.test.js`：镜像排除用例改为「根文件夹不进 folderPath，自定义文件夹嵌套拼接」
-- [x] 3.4 新增 `tests/extension-omnibox-only.test.js`：manifest 关键字 `q` + `bookmarks` 权限保留；`onStartup` 清理旧镜像 id（重复启动不重复删除）；有全量缓存时不创建任何浏览器书签
+- [x] 3.4 新增 `tests/extension-omnibox-only.test.js`：manifest 关键字 `qq` + `bookmarks` 权限保留；`onStartup` 清理旧镜像 id（重复启动不重复删除）；有全量缓存时不创建任何浏览器书签
 - [x] 3.5 `npm run quality`（syntax check + 全量 node:test）通过
 - [x] 3.6 建议同步交付：`tests/extension-omnibox-only.test.js` 覆盖「有快照时同一回调交付候选」「冷启动先同步空建议再异步补齐」
 
 ## 4. 产出物同步
 
-- [x] 4.1 `README.md` 地址栏搜索章节改为单一路径（`q` + 空格），删除镜像说明
+- [x] 4.1 `README.md` 地址栏搜索章节改为单一路径（`qq` + 空格），删除镜像说明
 - [x] 4.2 `CONTEXT.md`：`地址栏搜索` 条目改为单一路径 + `q`；删除 `书签镜像 (Bookmark Mirror)` 词条，`书签镜像` 进 Avoid 列表
 - [x] 4.3 `openspec/changes/extension-bookmark-mirror` 与 `extension-omnibox-search` 归档；本变更记录 MODIFIED/REMOVED 要求
-- [x] 4.4 实测路径记录：`chrome://extensions` 重载插件（1.3.0）→ 「其他书签/StarNav 收藏」被自动删除 → 地址栏输入 `q` + 空格 → 出现 StarNav 搜索提示条，输入关键词出候选 → 回车打开原始 URL
+- [x] 4.4 实测路径记录：`chrome://extensions` 重载插件（1.3.0）→ 「其他书签/StarNav 收藏」被自动删除 → 地址栏输入 `qq` + 空格 → 出现 StarNav 搜索提示条，输入关键词出候选 → 回车打开原始 URL

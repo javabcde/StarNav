@@ -2,7 +2,7 @@
 
 ### Requirement: 地址栏关键字入口
 
-插件 SHALL 在 manifest 注册 omnibox 关键字 `q`；地址栏输入 `q` + 空格（或 Tab）后 SHALL 进入 StarNav 收藏搜索模式。这是插件提供的唯一地址栏入口；插件 SHALL NOT 把 StarNav 收藏写入浏览器书签。
+插件 SHALL 在 manifest 注册 omnibox 关键字 `qq`；地址栏输入 `qq` + 空格（或 Tab）后 SHALL 进入 StarNav 收藏搜索模式。这是插件提供的唯一地址栏入口；插件 SHALL NOT 把 StarNav 收藏写入浏览器书签。
 
 #### Scenario: 进入搜索模式
 - **WHEN** 用户在地址栏输入 `q` 后按空格

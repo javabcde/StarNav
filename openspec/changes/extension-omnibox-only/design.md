@@ -23,7 +23,7 @@ Chrome 扩展 omnibox 必须带关键字才能进入扩展建议模式，无法�
 
 ### D3：omnibox 关键字定为 `q`
 
-单字符、输入成本最低；`q` 未被 Chrome 保留，也不与常见搜索引擎关键字冲突。manifest 关键字是用户可见契约，README/CONTEXT 同步为 `q` + 空格/Tab。匹配、排序、缓存等待/刷新、回车语义全部复用既有 `omnibox-logic.js`，零改动。
+初版用单字符 `q`（输入成本最低）。实测在用户 Chrome 上只有 `onInputEntered` 被派发，`onInputStarted`/`onInputChanged` 均不触发（下拉必然空白），无法在单字符关键字下定位原因，改为双字符 `qq` 做 A/B：若 `qq` 正常，则问题在单字符关键字（或被占用）；若仍不派发，则与关键字无关，转向 Chrome 版本/扩展加载问题。manifest 关键字是用户可见契约，README/CONTEXT 同步为 `qq` + 空格/Tab。
 
 ### D4：保留 `bookmarks` 权限与一键同步
 

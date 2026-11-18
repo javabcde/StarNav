@@ -60,7 +60,7 @@ async function warmBrowseCache() {
 }
 
 // ── 地址栏搜索（omnibox）─────────────────────────────────────────
-// manifest 注册关键字 q：地址栏输入 `q` + 空格进入 StarNav 收藏搜索。
+// manifest 注册关键字 qq：地址栏输入 `qq` + 空格进入 StarNav 收藏搜索。
 // 建议来自本地全量缓存（与 popup 站内浏览同一份数据，零额外请求）；
 // 缓存缺失时等待一次拉取（上限 1.5s），过期时先用旧数据并在后台刷新。
 const OMNIBOX_CACHE_WAIT_MS = 1500;
