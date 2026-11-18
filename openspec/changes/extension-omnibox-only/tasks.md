@@ -20,17 +20,9 @@
 - [x] 3.4 新增 `tests/extension-omnibox-only.test.js`：manifest 关键字 `q` + `bookmarks` 权限保留；`onStartup` 清理旧镜像 id（重复启动不重复删除）；有全量缓存时不创建任何浏览器书签
 - [x] 3.5 `npm run quality`（syntax check + 全量 node:test）通过
 
-## 4. 弹窗搜索直开（零前缀替代）
-
-- [x] 4.1 `popup.js`：视图挂载后 `browseSearch.focus()` + `select()`（有上次关键词时输入即替换）
-- [x] 4.2 `browse-view.js`：抽出 `applyBrowseKeyword()`；搜索框 `keydown` Enter → 清防抖 → 应用关键词 → `openFirstBrowseMatch()`；空输入不拦截
-- [x] 4.3 测试：`tests/popup-view-mount.test.js` 覆盖「Enter 先应用关键词再开首条」「空输入/无匹配不跳转」
-- [x] 4.4 版本 1.3.0 → 1.3.1；README 说明 Chrome 关键字约束与弹窗搜索路径
-
-## 5. 产出物同步
+## 4. 产出物同步
 
 - [x] 4.1 `README.md` 地址栏搜索章节改为单一路径（`q` + 空格），删除镜像说明
 - [x] 4.2 `CONTEXT.md`：`地址栏搜索` 条目改为单一路径 + `q`；删除 `书签镜像 (Bookmark Mirror)` 词条，`书签镜像` 进 Avoid 列表
 - [x] 4.3 `openspec/changes/extension-bookmark-mirror` 与 `extension-omnibox-search` 归档；本变更记录 MODIFIED/REMOVED 要求
-- [x] 4.4 实测路径记录：`chrome://extensions` 重载插件（1.3.1）→ 「其他书签/StarNav 收藏」被自动删除 → 地址栏输入 `q` + 空格 → 出现 StarNav 搜索提示条，输入关键词出候选 → 回车打开原始 URL
-- [x] 4.5 弹窗搜索：`Ctrl+Shift+F` 打开即聚焦搜索框；输入关键词后回车打开首条并关窗（无需关键字前缀）
+- [x] 4.4 实测路径记录：`chrome://extensions` 重载插件（1.3.0）→ 「其他书签/StarNav 收藏」被自动删除 → 地址栏输入 `q` + 空格 → 出现 StarNav 搜索提示条，输入关键词出候选 → 回车打开原始 URL

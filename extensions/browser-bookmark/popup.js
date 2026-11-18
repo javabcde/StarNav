@@ -213,12 +213,6 @@ async function initPopup() {
   collectView.mount();
   syncView.mount();
 
-  // 打开即定位搜索框（Ctrl+Shift+F → 直接输入 → 回车开首条）：
-  // 地址栏 omnibox 必须带关键字，这是 Chrome 允许的最近替代路径；
-  // 有上次关键词时全选，输入即替换（类似地址栏选中态）
-  els.browseSearch.focus();
-  els.browseSearch.select();
-
   if (!config.baseUrl || !config.token) {
     setStatus(`请先打开设置，填写 ${config.siteName || 'StarNav'} 地址和 Token。`, 'error');
     return;
