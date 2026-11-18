@@ -29,12 +29,22 @@ Chrome 扩展 omnibox 必须带关键字才能进入扩展建议模式，无法�
 
 「同步」视图仍用 `chrome.bookmarks.getTree()` 读取浏览器收藏夹，权限必须保留。移除镜像后 `flattenBookmarks` 不再有排除参数，快照直接包含全部浏览器书签——语义回到「以浏览器为基准同步」。
 
-### D5：契约收敛
+### D5：零前缀需求由弹窗搜索承接
+
+Chrome 扩展 omnibox 必须带关键字（官方文档明确要求 `omnibox.keyword`），没有「默认建议提供者」API；不写浏览器书签就无法在默认地址栏出现 StarNav 候选。因此零前缀体验落到弹窗：
+
+- `popup.js` 初始化后 `browseSearch.focus()` + `select()`：`Ctrl+Shift+F` 打开即可直接输入，上次关键词全选、输入即替换（对齐地址栏选中态）。
+- `browse-view.js` 搜索框 Enter：先 `clearTimeout` 再同步 `applyBrowseKeyword()`（否则 300ms 防抖未到期，`browseState` 还是旧关键词，会打开错误书签），然后 `openFirstBrowseMatch()` 复用条目点击路径（图标补全上报 + 跃迁反馈 + `tabs.create` + 关窗）。
+- 空输入 Enter 不拦截，避免误开列表首条。
+
+备选「自建弹窗页面 + 全局快捷键」被拒绝：MV3 无全局悬浮窗权限，`commands` 只能开 action popup 或新窗口，与现有弹窗重复。
+
+### D6：契约收敛
 
 `CONFIG_KEYS.sync` 删除 `mirrorBookmarks`、`STORAGE_KEYS` 删除 `BOOKMARK_MIRROR_FOLDER_ID`。旧配置中残留的 `mirrorBookmarks` 值不再被读取，也不主动清除（storage 无版本迁移机制，残留键无行为影响）。
 
 ## 风险与缓解
 
 - **升级时误删用户文件夹**：只删除 storage 记录的 id；id 失效（用户已删）时 removeTree 抛错被吞。
-- **用户已习惯 `sn`**：README 提示可改关键字；一次性行为变更，版本号 1.2.0 → 1.3.0。
+- **用户已习惯 `sn`**：README 提示可改关键字；一次性行为变更，版本号 1.2.0 → 1.3.1；`sn` 用户可用弹窗搜索（Ctrl+Shift+F）替代。
 - **`q` 与站内搜索快捷键冲突**：README 给出 `chrome://settings/searchEngines` 排查路径。

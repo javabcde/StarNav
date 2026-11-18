@@ -414,6 +414,22 @@
 
     let browseSearchTimer = null;
 
+    // 应用搜索词（Enter 直开时先 flush：300ms 防抖未到期时列表仍是旧结果，会开错书签）
+    function applyBrowseKeyword() {
+      const keyword = els.browseSearch.value.trim();
+      if (keyword === browseState.keyword) return Promise.resolve();
+      Object.assign(browseState, BrowseLogic.applyBrowseFilter(browseState, { keyword }));
+      return ensureBrowseCache().then(() => applyBrowseView()).catch(() => {});
+    }
+
+    // 打开当前列表第一条（复用条目点击的完整路径：图标补全上报 + 跃迁反馈 + 关窗）
+    function openFirstBrowseMatch() {
+      const first = els.browseList.querySelector('.browse-item[data-url]');
+      if (!first) return false;
+      first.click();
+      return true;
+    }
+
     /**
      * 挂载浏览视图：绑定交互监听 + 恢复上次视图 + 加载全量缓存。
      * 视图生命周期 seam：popup 壳在启动时调用一次（重复调用会重复绑定监听）。
@@ -421,12 +437,18 @@
     function mount() {
       els.browseSearch.addEventListener('input', () => {
         clearTimeout(browseSearchTimer);
-        browseSearchTimer = setTimeout(() => {
-          const keyword = els.browseSearch.value.trim();
-          if (keyword === browseState.keyword) return;
-          Object.assign(browseState, BrowseLogic.applyBrowseFilter(browseState, { keyword }));
-          ensureBrowseCache().then(() => applyBrowseView()).catch(() => {});
-        }, 300);
+        browseSearchTimer = setTimeout(applyBrowseKeyword, 300);
+      });
+
+      // 回车直开首条：无需关键字前缀的「输入→回车」路径（地址栏 omnibox 必须带关键字，
+      // 见 README「地址栏搜索」；弹窗快捷键是 Chrome 允许的唯一零前缀交互）
+      els.browseSearch.addEventListener('keydown', async (event) => {
+        if (event.key !== 'Enter') return;
+        if (!els.browseSearch.value.trim()) return;
+        event.preventDefault();
+        clearTimeout(browseSearchTimer);
+        await applyBrowseKeyword();
+        openFirstBrowseMatch();
       });
 
       els.browseSort.addEventListener('change', () => {
