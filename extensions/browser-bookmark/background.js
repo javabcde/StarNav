@@ -78,10 +78,32 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// 进入关键字输入时预取：用户敲完关键词前缓存已就绪
+// 默认建议兜底：默认行设置失败不应拖累候选列表
+function trySetDefaultSuggestion(description) {
+  try {
+    chrome.omnibox.setDefaultSuggestion({ description });
+  } catch (error) {
+    console.warn('[StarNav] omnibox 默认建议设置失败', error);
+  }
+}
+
+// 进入关键字输入时：立即给出默认行（同时验证关键字模式确实由本扩展接管），再预取缓存
 chrome.omnibox.onInputStarted.addListener(() => {
+  console.log('[StarNav] omnibox 关键字模式进入');
+  const cache = browseCacheSnapshot;
+  trySetDefaultSuggestion(
+    cache
+      ? OmniboxLogic.renderDefaultSuggestion({
+        query: '',
+        configured: true,
+        total: Number(cache.total) || cache.items.length,
+        matched: 0,
+        loading: false,
+      })
+      : Contract.escapeHTML('StarNav：正在加载收藏缓存…'),
+  );
   readBrowseCache()
-    .then((cache) => refreshBrowseCacheIfNeeded(cache))
+    .then((next) => refreshBrowseCacheIfNeeded(next))
     .catch(() => {});
 });
 
@@ -91,20 +113,14 @@ function buildOmniboxResponse(query, cache, configured, loading) {
   const matches = query
     ? OmniboxLogic.searchOmniboxItems(items, query, OmniboxLogic.MAX_SUGGESTIONS)
     : [];
-  try {
-    chrome.omnibox.setDefaultSuggestion({
-      description: OmniboxLogic.renderDefaultSuggestion({
-        query,
-        configured,
-        total: cache ? (Number(cache.total) || items.length) : 0,
-        matched: matches.length,
-        loading,
-      }),
-    });
-  } catch (error) {
-    // 默认行失败不应拖累候选列表
-    console.warn('omnibox 默认建议设置失败', error);
-  }
+  // 默认行失败不应拖累候选列表
+  trySetDefaultSuggestion(OmniboxLogic.renderDefaultSuggestion({
+    query,
+    configured,
+    total: cache ? (Number(cache.total) || items.length) : 0,
+    matched: matches.length,
+    loading,
+  }));
   return OmniboxLogic.buildOmniboxSuggestions(matches, query);
 }
 
@@ -130,25 +146,27 @@ chrome.omnibox.onInputChanged.addListener((text, suggest) => {
   const query = String(text || '').trim();
   if (browseCacheSnapshot) {
     // 同步交付：建议与默认行在同一回调内完成，不依赖延迟交付是否被浏览器接受
-    suggest(buildOmniboxResponse(query, browseCacheSnapshot, true, false));
+    const list = buildOmniboxResponse(query, browseCacheSnapshot, true, false);
+    console.log('[StarNav] onInputChanged', JSON.stringify(query), '缓存', browseCacheSnapshot.items.length, '建议', list.length);
+    suggest(list);
     refreshBrowseCacheIfNeeded(browseCacheSnapshot);
     return;
   }
-  chrome.omnibox.setDefaultSuggestion({
-    description: OmniboxLogic.renderDefaultSuggestion({
-      query,
-      configured: true,
-      total: 0,
-      matched: 0,
-      loading: true,
-    }),
-  });
+  console.log('[StarNav] onInputChanged（冷启动无快照）', JSON.stringify(query));
+  trySetDefaultSuggestion(OmniboxLogic.renderDefaultSuggestion({
+    query,
+    configured: true,
+    total: 0,
+    matched: 0,
+    loading: true,
+  }));
   suggest([]);
   hydrateOmniboxSuggestions(text, suggest);
 });
 
 chrome.omnibox.onInputEntered.addListener(async (text, disposition) => {
   const raw = String(text || '').trim();
+  console.log('[StarNav] onInputEntered', JSON.stringify(raw));
   const target = OmniboxLogic.normalizeOmniboxTarget(raw);
   let url = target.kind === 'url' ? target.url : '';
 
