@@ -15,6 +15,8 @@ const MIRROR_KEY = 'bookmark:mirror:folderId';
 function createChromeMock(local = {}) {
   const listeners = { installed: [], startup: [] };
   const calls = { create: [], removeTree: [] };
+  const omniboxListeners = { started: [], changed: [], entered: [] };
+  const omniboxCalls = { defaultSuggestions: [] };
   const event = (buffer) => ({ addListener: (fn) => buffer.push(fn) });
 
   const tree = [{
@@ -69,10 +71,10 @@ function createChromeMock(local = {}) {
     windows: { getLastFocused: async () => ({}) },
     tabs: { create() {}, update() {}, query: async () => [] },
     omnibox: {
-      onInputStarted: { addListener() {} },
-      onInputChanged: { addListener() {} },
-      onInputEntered: { addListener() {} },
-      setDefaultSuggestion() {},
+      onInputStarted: event(omniboxListeners.started),
+      onInputChanged: event(omniboxListeners.changed),
+      onInputEntered: event(omniboxListeners.entered),
+      setDefaultSuggestion: (suggestion) => { omniboxCalls.defaultSuggestions.push(suggestion); },
     },
     bookmarks: {
       getTree: async () => tree,
@@ -92,7 +94,7 @@ function createChromeMock(local = {}) {
     },
   };
 
-  return { chrome, calls, listeners, local };
+  return { chrome, calls, listeners, local, omniboxListeners, omniboxCalls };
 }
 
 function runBackground(mock) {
@@ -155,4 +157,51 @@ test('background：有全量缓存时也不向浏览器书签写入镜像', asyn
   assert.deepEqual(mock.calls.create, [], '不得创建 StarNav 收藏文件夹或书签');
   assert.deepEqual(mock.calls.removeTree, [], '无旧镜像 id 时不得触碰浏览器书签');
   assert.equal(MIRROR_KEY in mock.local, false);
+});
+
+const OMNIBOX_CACHE = {
+  kind: 'full',
+  fetchedAt: Date.now(),
+  ttlMinutes: 5,
+  items: [
+    { id: 1, name: 'GitHub', url: 'https://github.com', catelog: '开发', tags: ['git'], visibility: 'public' },
+  ],
+  total: 1,
+  categories: [],
+};
+
+test('background：有内存快照时 onInputChanged 同一回调内同步交付建议', async () => {
+  const mock = createChromeMock({ 'browse:cache:v1': OMNIBOX_CACHE });
+  runBackground(mock);
+  assert.equal(mock.omniboxListeners.changed.length, 1, '应注册 onInputChanged');
+
+  // 进入关键字模式：预取把缓存装入内存快照（storage 读取是异步的，等它落位）
+  mock.omniboxListeners.started[0]();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const delivered = [];
+  const returned = mock.omniboxListeners.changed[0]('git', (list) => delivered.push(list));
+
+  assert.equal(returned, undefined, 'onInputChanged 不得是 async：建议必须同步交付');
+  assert.equal(delivered.length, 1, '回调返回前应交付一次建议');
+  // vm 内数组与宿主数组原型不同：用 Array.from 转成宿主数组再比较
+  assert.deepEqual(Array.from(delivered[0], (item) => item.content), ['https://github.com']);
+  assert.match(delivered[0][0].description, /<match>Git<\/match>Hub/, '关键词应高亮且名称完整');
+  assert.match(mock.omniboxCalls.defaultSuggestions.at(-1).description, /在 StarNav 收藏中搜索「git」/);
+});
+
+test('background：冷启动无快照时先同步空建议，再异步补齐候选', async () => {
+  const mock = createChromeMock({ 'browse:cache:v1': OMNIBOX_CACHE });
+  runBackground(mock);
+
+  // 不触发 onInputStarted：模拟 service worker 刚唤醒、快照还没装入
+  const delivered = [];
+  const returned = mock.omniboxListeners.changed[0]('git', (list) => delivered.push(list));
+
+  assert.equal(returned, undefined, '冷启动路径也必须同步返回');
+  assert.equal(delivered.length, 1, '同步阶段只交付一次建议');
+  assert.equal(delivered[0].length, 0, '同步阶段先给空建议，默认行走「正在加载」文案');
+
+  await waitFor(() => delivered.length === 2);
+  assert.deepEqual(Array.from(delivered[1], (item) => item.content), ['https://github.com']);
 });

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "StarNav 一键收藏",
   "description": "将当前网页一键收藏到 StarNav 导航站。",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "permissions": [
     "activeTab",
     "bookmarks",

@@ -8,11 +8,18 @@
 // 匹配排序/建议描述/回车目标判定来自 OmniboxLogic。
 importScripts('extension-contract.js', 'popup-logic.js', 'omnibox-logic.js');
 
+// 内存快照：地址栏建议必须在 onInputChanged 的同步回调里交付，
+// 等 await（storage 读取/网络拉取）之后再 suggest 会依赖浏览器是否接受延迟建议；
+// 快照在读取/刷新/缓存变更三处维护，有快照时建议零等待、同步返回。
+let browseCacheSnapshot = null;
+
 // 读取已落盘的全量缓存；旧格式/缺失返回 null
 async function readBrowseCache() {
   const stored = await chrome.storage.local.get(Contract.BROWSE_CACHE_KEY);
   const cache = stored[Contract.BROWSE_CACHE_KEY];
-  return BrowseLogic.isFullBrowseCache(cache) ? cache : null;
+  if (!BrowseLogic.isFullBrowseCache(cache)) return null;
+  browseCacheSnapshot = cache;
+  return cache;
 }
 
 // 拉取并写入全量缓存（未配置 baseUrl/token 返回 null）
@@ -32,6 +39,7 @@ async function refreshBrowseCache() {
   await chrome.storage.local.set({
     [Contract.BROWSE_CACHE_KEY]: cache,
   });
+  browseCacheSnapshot = cache;
   return cache;
 }
 
@@ -77,38 +85,66 @@ chrome.omnibox.onInputStarted.addListener(() => {
     .catch(() => {});
 });
 
-chrome.omnibox.onInputChanged.addListener(async (text, suggest) => {
-  const query = String(text || '').trim();
-  const settings = await chrome.storage.sync.get(Contract.CONFIG_KEYS.sync);
-  const configured = Boolean(Contract.normalizeBaseUrl(settings.baseUrl) && settings.token);
-
-  let cache = await readBrowseCache();
-  let loading = false;
-  if (configured && !cache) {
-    // 首次使用/缓存被清：等一次拉取，超过 1.5s 先返回空建议（下次输入命中）
-    loading = true;
-    const fetched = await Promise.race([refreshBrowseCacheOnce(), delay(OMNIBOX_CACHE_WAIT_MS)]);
-    cache = BrowseLogic.isFullBrowseCache(fetched) ? fetched : null;
-    loading = !cache;
-  } else if (configured) {
-    // 过期缓存先用于本次建议，后台刷新留给下次输入
-    refreshBrowseCacheIfNeeded(cache);
-  }
-
+// 构造本次输入的建议（含默认行）。同步函数：不碰 storage，只用内存快照。
+function buildOmniboxResponse(query, cache, configured, loading) {
   const items = cache ? cache.items : [];
   const matches = query
     ? OmniboxLogic.searchOmniboxItems(items, query, OmniboxLogic.MAX_SUGGESTIONS)
     : [];
+  try {
+    chrome.omnibox.setDefaultSuggestion({
+      description: OmniboxLogic.renderDefaultSuggestion({
+        query,
+        configured,
+        total: cache ? (Number(cache.total) || items.length) : 0,
+        matched: matches.length,
+        loading,
+      }),
+    });
+  } catch (error) {
+    // 默认行失败不应拖累候选列表
+    console.warn('omnibox 默认建议设置失败', error);
+  }
+  return OmniboxLogic.buildOmniboxSuggestions(matches, query);
+}
+
+// 冷启动无快照：先同步给默认行 + 空建议（本次输入立即可见），
+// 再异步等一次全量拉取；下一次输入即可走同步快照。
+async function hydrateOmniboxSuggestions(text, suggest) {
+  const query = String(text || '').trim();
+  try {
+    const settings = await chrome.storage.sync.get(Contract.CONFIG_KEYS.sync);
+    const configured = Boolean(Contract.normalizeBaseUrl(settings.baseUrl) && settings.token);
+    let cache = await readBrowseCache();
+    if (configured && !cache) {
+      const fetched = await Promise.race([refreshBrowseCacheOnce(), delay(OMNIBOX_CACHE_WAIT_MS)]);
+      cache = BrowseLogic.isFullBrowseCache(fetched) ? fetched : null;
+    }
+    suggest(buildOmniboxResponse(query, cache, configured, false));
+  } catch (error) {
+    console.warn('omnibox 建议加载失败', error);
+  }
+}
+
+chrome.omnibox.onInputChanged.addListener((text, suggest) => {
+  const query = String(text || '').trim();
+  if (browseCacheSnapshot) {
+    // 同步交付：建议与默认行在同一回调内完成，不依赖延迟交付是否被浏览器接受
+    suggest(buildOmniboxResponse(query, browseCacheSnapshot, true, false));
+    refreshBrowseCacheIfNeeded(browseCacheSnapshot);
+    return;
+  }
   chrome.omnibox.setDefaultSuggestion({
     description: OmniboxLogic.renderDefaultSuggestion({
       query,
-      configured,
-      total: cache ? (Number(cache.total) || items.length) : 0,
-      matched: matches.length,
-      loading,
+      configured: true,
+      total: 0,
+      matched: 0,
+      loading: true,
     }),
   });
-  suggest(OmniboxLogic.buildOmniboxSuggestions(matches, query));
+  suggest([]);
+  hydrateOmniboxSuggestions(text, suggest);
 });
 
 chrome.omnibox.onInputEntered.addListener(async (text, disposition) => {
@@ -186,12 +222,16 @@ chrome.runtime.onInstalled.addListener(() => {
   purgeLegacyBookmarkMirror();
 });
 
-// 站点名变化时更新右键菜单标题
+// 站点名变化时更新右键菜单标题；全量缓存变化时同步内存快照（popup 刷新/收藏后重拉）
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'sync' && changes.siteName) {
     chrome.contextMenus.update("starnav-collect", {
       title: Contract.collectMenuTitle(changes.siteName.newValue),
     }).catch(() => {});
+  }
+  if (area === 'local' && changes[Contract.BROWSE_CACHE_KEY]) {
+    const next = changes[Contract.BROWSE_CACHE_KEY].newValue;
+    browseCacheSnapshot = BrowseLogic.isFullBrowseCache(next) ? next : null;
   }
 });
 

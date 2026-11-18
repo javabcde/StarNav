@@ -19,6 +19,7 @@
 - [x] 3.3 `tests/popup-view-mount.test.js`：镜像排除用例改为「根文件夹不进 folderPath，自定义文件夹嵌套拼接」
 - [x] 3.4 新增 `tests/extension-omnibox-only.test.js`：manifest 关键字 `q` + `bookmarks` 权限保留；`onStartup` 清理旧镜像 id（重复启动不重复删除）；有全量缓存时不创建任何浏览器书签
 - [x] 3.5 `npm run quality`（syntax check + 全量 node:test）通过
+- [x] 3.6 建议同步交付：`tests/extension-omnibox-only.test.js` 覆盖「有快照时同一回调交付候选」「冷启动先同步空建议再异步补齐」
 
 ## 4. 产出物同步
 
